@@ -1,0 +1,14 @@
+<div id="annotation-panel">
+  <p class="annotation-hint">
+    Form your hypothesis first. Then, from the notebook, call
+    <code>playbook.checkpoint(df, topic="{{ topic.id }}")</code> on the
+    DataFrame/query you want to self-check. Nothing is shown here until you
+    click Reveal below.
+  </p>
+  <button id="reveal-btn"
+          hx-post="/topics/{{ topic.id }}/annotation/reveal"
+          hx-target="#annotation-panel"
+          hx-swap="outerHTML">
+    Reveal self-check
+  </button>
+</div>

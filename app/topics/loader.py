@@ -65,7 +65,17 @@ def load_topic(topic_id: str) -> Topic:
     if not manifest_path.exists():
         raise TopicNotFoundError(f"Topic {topic_id!r} has no manifest.yaml")
 
-    data = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+    try:
+        data = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        # Genuinely malformed YAML (bad indentation, unterminated flow
+        # sequence, etc.) used to propagate a raw yaml.YAMLError -- not a
+        # TopicNotFoundError, so main.py's global exception handler (issue #4)
+        # didn't catch it and it surfaced as an unhandled 500 across every
+        # topic/annotation route (issue #10). Re-raise as TopicNotFoundError,
+        # matching the existing "fail clearly at load time" precedent set by
+        # the missing-manifest/missing-notebook checks in this function.
+        raise TopicNotFoundError(f"Topic {topic_id!r} has a malformed manifest.yaml: {exc}") from exc
 
     cd = data.get("cluster_defaults") or {}
     cluster_defaults = ClusterDefaults(

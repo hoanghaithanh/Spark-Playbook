@@ -86,3 +86,43 @@ button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
+.annotation-hint {
+  color: #475569;
+  font-size: 0.95rem;
+}
+.annotation-hint.error {
+  color: #b91c1c;
+}
+.checkpoint-meta {
+  color: #475569;
+  font-size: 0.9rem;
+}
+.plan-nodes {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 0.75rem 1.5rem;
+}
+.plan-nodes li.unknown {
+  color: #94a3b8;
+}
+.plan-nodes .concept {
+  color: #64748b;
+  font-size: 0.85rem;
+}
+table.stage-metrics {
+  border-collapse: collapse;
+  width: 100%;
+  background: white;
+}
+table.stage-metrics th,
+table.stage-metrics td {
+  border: 1px solid #e2e8f0;
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  font-size: 0.9rem;
+}
+table.stage-metrics th.spotlight,
+table.stage-metrics td.spotlight {
+  background: #fef9c3;
+}

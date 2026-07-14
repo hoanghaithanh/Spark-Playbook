@@ -1,0 +1,52 @@
+# Spark Playbook — topic manifest (PLAN.md §3 schema, worked example this
+# manifest is drawn from directly).
+
+id: join-strategies
+title: "Join Strategies: Broadcast vs Sort-Merge vs Shuffle-Hash"
+order: 2
+content: concept.md
+notebook: notebook.ipynb
+
+cluster_defaults:
+  worker_count: 3
+  worker_cores: 2
+  worker_memory_gb: 4
+  shuffle_partitions: 200
+  aqe_enabled: false
+requires_kafka: false
+
+annotation:
+  # Most-specific-first precedence (US-2.1): BroadcastHashJoin/BroadcastExchange
+  # and ShuffledHashJoin are declared ahead of the generic Exchange rule so
+  # that rule doesn't swallow them (a "BroadcastExchange" node's name contains
+  # the substring "Exchange").
+  plan_nodes:
+    - match: "BroadcastHashJoin"
+      concept: broadcast-join
+      label: "Broadcast hash join (no shuffle of the large side)"
+    - match: "BroadcastExchange"
+      concept: broadcast-exchange
+      label: "Broadcast of the small side"
+    - match: "SortMergeJoin"
+      concept: sort-merge-join
+      label: "Sort-merge join (both sides shuffled + sorted)"
+    - match: "ShuffledHashJoin"
+      concept: shuffle-hash-join
+      label: "Shuffle-hash join (both sides shuffled, one side hash-built)"
+    - match: "Exchange"
+      concept: shuffle-boundary
+      label: "Shuffle boundary (Exchange)"
+    - match: "Sort"
+      concept: sort
+      label: "Sort (precedes a sort-merge join's merge step)"
+
+  stage_metrics:
+    - key: shuffleReadBytes
+      spotlight: true
+    - key: shuffleWriteBytes
+      spotlight: true
+    - key: numTasks
+    - key: executorRunTime
+      spotlight: true
+    - key: memoryBytesSpilled
+    - key: diskBytesSpilled

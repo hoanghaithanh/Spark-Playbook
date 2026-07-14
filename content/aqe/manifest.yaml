@@ -1,0 +1,55 @@
+# Spark Playbook — topic manifest (PLAN.md §3 schema).
+
+id: aqe
+title: "Adaptive Query Execution (AQE)"
+order: 4
+content: concept.md
+notebook: notebook.ipynb
+
+cluster_defaults:
+  worker_count: 3
+  worker_cores: 2
+  worker_memory_gb: 4
+  shuffle_partitions: 200
+  aqe_enabled: true
+requires_kafka: false
+
+annotation:
+  plan_nodes:
+    # AQE's adaptive shuffle-reader node -- the name changed across Spark
+    # versions ("CustomShuffleReader" pre-3.2, "AQEShuffleRead" 3.2+/4.x).
+    # Both are declared so this manifest doesn't silently go stale on a
+    # version bump; unmatched names still render as unknown/unannotated
+    # rather than the engine guessing (US-2.1 c3).
+    - match: "AQEShuffleRead"
+      concept: aqe-adaptive-reader
+      label: "AQE adaptive shuffle reader (partition coalescing / skew-join split applied here)"
+    - match: "CustomShuffleReader"
+      concept: aqe-adaptive-reader
+      label: "AQE adaptive shuffle reader (partition coalescing / skew-join split applied here)"
+    - match: "BroadcastHashJoin"
+      concept: broadcast-join
+      label: "Broadcast hash join (AQE can switch a join to this at runtime, US-2.5)"
+    - match: "BroadcastExchange"
+      concept: broadcast-exchange
+      label: "Broadcast of the small side"
+    - match: "SortMergeJoin"
+      concept: sort-merge-join
+      label: "Sort-merge join"
+    - match: "Exchange"
+      concept: shuffle-boundary
+      label: "Shuffle boundary (Exchange)"
+    - match: "Sort"
+      concept: sort
+      label: "Sort"
+
+  stage_metrics:
+    - key: shuffleReadBytes
+      spotlight: true
+    - key: shuffleWriteBytes
+      spotlight: true
+    - key: numTasks
+    - key: executorRunTime
+      spotlight: true
+    - key: memoryBytesSpilled
+    - key: diskBytesSpilled

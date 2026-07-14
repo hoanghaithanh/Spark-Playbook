@@ -1,0 +1,41 @@
+<div id="stage-table"
+     hx-get="/topics/{{ topic.id }}/annotation/stages"
+     hx-trigger="every {{ poll_interval_s }}s"
+     hx-swap="outerHTML">
+  {% if manifest_error %}
+    <p class="annotation-hint error">
+      This topic's manifest.yaml has an invalid <code>annotation:</code> section: {{ manifest_error }}
+    </p>
+  {% elif app_id is none %}
+    <p class="annotation-hint">No active or checkpointed application found at :4040 yet.</p>
+  {% elif stages is none %}
+    <p class="annotation-hint error">Could not reach the Spark REST API at :4040 for app {{ app_id }}.</p>
+  {% elif stages|length == 0 %}
+    <p class="annotation-hint">Application {{ app_id }} has no stages yet.</p>
+  {% else %}
+  <table class="stage-metrics">
+    <thead>
+      <tr>
+        <th>Stage</th>
+        <th>Status</th>
+        {% for rule_key in stages[0].metrics.keys() %}
+        <th class="{{ 'spotlight' if stages[0].metrics[rule_key].spotlight else '' }}">{{ rule_key }}</th>
+        {% endfor %}
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in stages %}
+      <tr>
+        <td>{{ s.stageId }} (attempt {{ s.attemptId }})</td>
+        <td>{{ s.status }}</td>
+        {% for rule_key, m in s.metrics.items() %}
+        <td class="{{ 'spotlight' if m.spotlight else '' }}">{{ m.value }}</td>
+        {% endfor %}
+        <td><a href="{{ s.ui_url }}" target="_blank" rel="noopener">Open stage in Spark UI</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>

@@ -1,0 +1,49 @@
+# Spark Playbook — topic manifest (PLAN.md §3 schema).
+
+id: bucketing
+title: "Bucketing (Co-partitioned Joins)"
+order: 3
+content: concept.md
+notebook: notebook.ipynb
+
+cluster_defaults:
+  worker_count: 3
+  worker_cores: 2
+  worker_memory_gb: 4
+  shuffle_partitions: 200
+  aqe_enabled: false
+requires_kafka: false
+
+annotation:
+  # US-2.4: a bucketed, co-partitioned SortMergeJoin must be distinguished
+  # from a standard (shuffling) SortMergeJoin, not collapsed into one label.
+  # `requires_absent_nearby` (manifest.py's extension of the base schema) is
+  # what makes this manifest-driven rather than a hardcoded engine special
+  # case (G7): "SortMergeJoin with no Exchange within the next 10 nodes" is
+  # the co-partitioned case; the very next rule is the fallback for a plain
+  # SortMergeJoin that *does* still shuffle (the mismatched-bucket-count /
+  # wrong-join-key contrast case in this topic's notebook).
+  plan_nodes:
+    - match: "SortMergeJoin"
+      concept: co-partitioned-join
+      label: "Co-partitioned join (bucketed on the join key, no shuffle)"
+      requires_absent_nearby: "Exchange"
+      window: 10
+    - match: "SortMergeJoin"
+      concept: sort-merge-join
+      label: "Sort-merge join (bucketing did not avoid the shuffle here)"
+    - match: "Exchange"
+      concept: shuffle-boundary
+      label: "Shuffle boundary (Exchange) -- bucketing did not avoid it here"
+    - match: "Sort"
+      concept: sort
+      label: "Sort (precedes the merge step)"
+
+  stage_metrics:
+    - key: shuffleReadBytes
+      spotlight: true
+    - key: shuffleWriteBytes
+      spotlight: true
+    - key: numTasks
+    - key: executorRunTime
+      spotlight: true

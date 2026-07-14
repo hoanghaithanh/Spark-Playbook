@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import config
 from app.topics.loader import TopicNotFoundError
-from app.web.routes import topics
+from app.web.routes import annotation, topics
 
 
 def create_app() -> FastAPI:
@@ -20,6 +20,7 @@ def create_app() -> FastAPI:
 
     app.mount("/static", StaticFiles(directory=str(config.WEB_STATIC_DIR)), name="static")
     app.include_router(topics.router)
+    app.include_router(annotation.router)
 
     @app.exception_handler(TopicNotFoundError)
     async def topic_not_found_handler(request: Request, exc: TopicNotFoundError) -> JSONResponse:

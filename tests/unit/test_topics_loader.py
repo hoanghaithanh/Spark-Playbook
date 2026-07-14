@@ -81,6 +81,21 @@ class TestMissingTopicFailsClearly:
             with pytest.raises(FileNotFoundError):
                 topic.concept_html()
 
+    def test_malformed_yaml_syntax_fails_clearly_not_with_raw_yaml_error(self, tmp_path):
+        topic_dir = tmp_path / "malformed-yaml-topic"
+        topic_dir.mkdir()
+        # Unterminated flow sequence -- a realistic hand-edit typo, not a
+        # contrived pathological input.
+        (topic_dir / "manifest.yaml").write_text(
+            "id: malformed-yaml-topic\nannotation: [unterminated\n", encoding="utf-8"
+        )
+        (topic_dir / "concept.md").write_text("# ok", encoding="utf-8")
+        (topic_dir / "notebook.ipynb").write_text("{}", encoding="utf-8")
+
+        with patch.object(config, "CONTENT_DIR", tmp_path):
+            with pytest.raises(loader.TopicNotFoundError):
+                loader.load_topic("malformed-yaml-topic")
+
     def test_missing_notebook_file_raises_clearly_at_load_time(self, tmp_path):
         """Issue #5 fix: load_topic() now validates notebook_path.exists(),
         matching how a missing manifest.yaml is already handled -- a manifest

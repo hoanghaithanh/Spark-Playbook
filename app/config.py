@@ -20,6 +20,19 @@ SPARK_DEFAULTS_FILE = RENDERED_DIR / "spark-defaults.conf"
 
 CONTENT_DIR = REPO_ROOT / "content"
 
+# Pull-not-push self-check shared volume (PLAN.md §3, G3). This is a plain
+# subdirectory of the repo, NOT the `/shared` path baked into
+# `compose/Dockerfile.spark` -- that path is never bind-mounted anywhere in
+# `compose/templates/docker-compose.yml.j2` (only the whole repo, at
+# /workspace, is), so anything written to `/shared` inside a container would
+# be invisible to this host-side FastAPI process. `scratch/` is already
+# gitignored and already the convention for generated/scratch data, and is
+# visible identically on both sides via the existing /workspace bind mount
+# (REPO_ROOT here == /workspace inside every container), so
+# `driver/playbook/annotate.py::checkpoint()` writes here instead.
+SHARED_DIR = REPO_ROOT / "scratch" / "shared"
+ANNOTATIONS_DIR = SHARED_DIR / "annotations"
+
 WEB_TEMPLATES_DIR = APP_DIR / "web" / "templates"
 WEB_STATIC_DIR = APP_DIR / "web" / "static"
 
@@ -97,3 +110,7 @@ MASTER_MEMORY_GB = 1
 READY_POLL_INTERVAL_S = 2
 READY_TIMEOUT_DEFAULT_S = 60
 READY_TIMEOUT_MAX_S = 90
+
+# Runtime stage-metrics polling interval (PLAN.md §3, US-2.2: target 5-10s,
+# D4's HTMX `hx-trigger="every 6s"` idiom).
+STAGE_POLL_INTERVAL_S = 6
