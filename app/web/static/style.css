@@ -93,6 +93,12 @@ button:disabled {
 .annotation-hint.error {
   color: #b91c1c;
 }
+.stale-warning {
+  background: #fef2f2;
+  border: 1px solid #b91c1c;
+  border-radius: 6px;
+  padding: 0.6rem 1rem;
+}
 .checkpoint-meta {
   color: #475569;
   font-size: 0.9rem;

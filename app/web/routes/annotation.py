@@ -53,6 +53,36 @@ def _latest_checkpoint(topic_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _stale_checkpoint_warning(checkpoint_data: Dict[str, Any]) -> Optional[str]:
+    """Issue #16: a checkpoint's app_id is never checked against what's
+    actually live at :4040 before Reveal renders it -- so a checkpoint from a
+    torn-down-and-respawned (or simply much older) session renders a fully
+    confident, fully-labeled plan with nothing to indicate it's stale (the
+    starkest repro: zero live applications, yet Reveal still showed a
+    2-hour-old plan as if current). Returns None if the checkpoint's app_id
+    is known to the driver currently answering at :4040 (covers the
+    legitimate "job just completed but driver isn't torn down yet" case --
+    `fetch_all_app_ids()` includes completed attempts, not just running
+    ones), or a clear warning string otherwise."""
+    checkpoint_app_id = checkpoint_data.get("app_id")
+    known_ids = app_client.fetch_all_app_ids()
+
+    if known_ids is None:
+        return (
+            "No Spark application is currently reachable at :4040, so this checkpoint's application "
+            f"({checkpoint_app_id}) cannot be confirmed as the current session -- it may be from a prior, "
+            "already-torn-down cluster. Re-run playbook.checkpoint(df, topic=...) against a live session "
+            "before trusting this plan."
+        )
+    if checkpoint_app_id not in known_ids:
+        return (
+            f"This checkpoint's application ({checkpoint_app_id}) is not known to the driver currently "
+            "running at :4040 -- it's from a different or prior session, not the one you're looking at now. "
+            "Re-run playbook.checkpoint(df, topic=...) against the current session."
+        )
+    return None
+
+
 def _stage_rows(app_id: Optional[str], manifest) -> Optional[List[Dict[str, Any]]]:
     if not app_id:
         return None
@@ -118,7 +148,13 @@ async def reveal_annotation(request: Request, topic_id: str) -> HTMLResponse:
     topic = loader.load_topic(topic_id)
     checkpoint_data = _latest_checkpoint(topic_id)
 
-    ctx: Dict[str, Any] = {"request": request, "topic": topic, "checkpoint": checkpoint_data, "manifest_error": None}
+    ctx: Dict[str, Any] = {
+        "request": request,
+        "topic": topic,
+        "checkpoint": checkpoint_data,
+        "manifest_error": None,
+        "stale_warning": None,
+    }
 
     if checkpoint_data is not None:
         try:
@@ -128,6 +164,7 @@ async def reveal_annotation(request: Request, topic_id: str) -> HTMLResponse:
         else:
             operators = plan_parser.parse_operators(checkpoint_data.get("explain_formatted", ""))
             ctx["annotated_nodes"] = engine.annotate_plan(operators, manifest)
+            ctx["stale_warning"] = _stale_checkpoint_warning(checkpoint_data)
             ctx.update(_stages_context(request, topic, checkpoint_data))
 
     return templates.TemplateResponse(request, "fragments/annotation_reveal.html", ctx)

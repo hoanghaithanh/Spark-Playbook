@@ -134,7 +134,19 @@ services:
 {% endfor %}
     ports:
       - "8888:8888"   # JupyterLab
-      - "4040:4040"   # driver application UI + /api/v1/... REST
+      # PLAN.md §6/R2 names the risk directly, but only mitigated it
+      # instructionally ("tell the learner to spark.stop()"), which doesn't
+      # actually prevent or detect it. Issue #15 (Phase 2 acceptance
+      # validation) reproduced it via ordinary kernel churn: an orphaned
+      # kernel whose client connection dropped keeps running server-side,
+      # keeping 4040 bound to the OLD application; a second, genuinely-
+      # intended session then gets bumped by Spark to 4041 (or 4042). With
+      # only 4040 published, that bumped session's UI/REST API became
+      # completely unreachable from the host -- while 4040 kept answering
+      # confidently for the wrong (old) application the whole time. Publish
+      # a small fallback range so a bumped session stays reachable instead
+      # of silently vanishing.
+      - "4040-4042:4040-4042"   # driver application UI + /api/v1/... REST (+ 2 fallback ports)
       - "7078:7078"   # spark.driver.port (pinned, PLAN.md §6/R1)
       - "7079:7079"   # spark.blockManager.port (pinned, PLAN.md §6/R1)
     volumes:

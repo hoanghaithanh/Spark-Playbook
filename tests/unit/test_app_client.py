@@ -75,6 +75,37 @@ class TestFetchCurrentAppId:
             assert app_client.fetch_current_app_id() is None
 
 
+class TestFetchAllAppIds:
+    """Issue #16: distinguishes 'this app_id belongs to the currently-live
+    driver session' (running OR completed) from 'no such app_id at all'."""
+
+    def test_includes_both_running_and_completed_ids(self):
+        apps = [
+            {"id": "app-completed", "attempts": [{"endTime": "2026-01-01T00:00:00.000GMT"}]},
+            {"id": "app-running", "attempts": [{"endTime": "1969-12-31T23:59:59.999GMT"}]},
+        ]
+        with _mock_urlopen(apps):
+            ids = app_client.fetch_all_app_ids()
+        assert ids == ["app-completed", "app-running"]
+
+    def test_reachable_but_empty_returns_empty_list_not_none(self):
+        with _mock_urlopen([]):
+            assert app_client.fetch_all_app_ids() == []
+
+    def test_unreachable_endpoint_returns_none(self):
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("connection refused")):
+            assert app_client.fetch_all_app_ids() is None
+
+    def test_malformed_top_level_shape_returns_none(self):
+        with _mock_urlopen({"error": "unexpected shape"}):
+            assert app_client.fetch_all_app_ids() is None
+
+    def test_non_dict_entries_are_skipped(self):
+        apps = ["not-a-dict", {"id": "app-1", "attempts": []}]
+        with _mock_urlopen(apps):
+            assert app_client.fetch_all_app_ids() == ["app-1"]
+
+
 class TestFetchStages:
     def test_returns_raw_stage_list(self):
         stages = [{"stageId": 0, "shuffleReadBytes": 100, "numTasks": 4}]

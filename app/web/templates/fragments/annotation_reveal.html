@@ -17,6 +17,11 @@
       {{ manifest_error }}
     </p>
   {% else %}
+    {% if stale_warning %}
+    <p class="annotation-hint error stale-warning">
+      <strong>Stale checkpoint:</strong> {{ stale_warning }}
+    </p>
+    {% endif %}
     <p class="checkpoint-meta">
       Checkpoint: application <code>{{ checkpoint.app_id }}</code>,
       captured at <code>{{ checkpoint.timestamp }}</code> (epoch seconds).

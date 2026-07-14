@@ -63,6 +63,12 @@ class TestRevealWithCheckpoint:
         _write_checkpoint(annotations_dir, "join-strategies")
 
         monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app_id, timeout_s=3.0: [])
+        # Fresh checkpoint (issue #16): app_id is known to the "current" driver,
+        # so no stale-checkpoint warning -- keeps this test focused on plan
+        # annotation and avoids a real network call to :4040.
+        monkeypatch.setattr(
+            annotation_module.app_client, "fetch_all_app_ids", lambda timeout_s=3.0: ["app-test-0001"]
+        )
 
         with patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
             resp = client.post("/topics/join-strategies/annotation/reveal")
@@ -73,6 +79,7 @@ class TestRevealWithCheckpoint:
         assert "Broadcast hash join" in resp.text
         assert "Broadcast of the small side" in resp.text
         assert "app-test-0001" in resp.text
+        assert "Stale checkpoint" not in resp.text
 
     def test_reveal_shows_unknown_for_unmapped_operator(self, tmp_path, monkeypatch):
         annotations_dir = tmp_path / "annotations"
@@ -84,12 +91,75 @@ class TestRevealWithCheckpoint:
 """
         _write_checkpoint(annotations_dir, "join-strategies", explain_text=plan_with_unknown_node)
         monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app_id, timeout_s=3.0: [])
+        monkeypatch.setattr(
+            annotation_module.app_client, "fetch_all_app_ids", lambda timeout_s=3.0: ["app-test-0001"]
+        )
 
         with patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
             resp = client.post("/topics/join-strategies/annotation/reveal")
 
         assert resp.status_code == 200
         assert "unknown / unannotated" in resp.text  # US-2.1 c3 -- never guessed
+
+
+class TestRevealStaleCheckpointWarning:
+    """Issue #16: Reveal must not silently render a confident, fully-labeled
+    plan from a checkpoint that doesn't belong to the currently-live driver
+    session at :4040."""
+
+    def test_zero_live_applications_shows_stale_warning(self, tmp_path, monkeypatch):
+        """Starkest repro from acceptance validation: a freshly-spawned
+        cluster with zero live applications must not silently show a
+        confident, fully-labeled plan from an old checkpoint."""
+        annotations_dir = tmp_path / "annotations"
+        _write_checkpoint(annotations_dir, "join-strategies", app_id="app-two-hours-old")
+        monkeypatch.setattr(annotation_module.app_client, "fetch_all_app_ids", lambda timeout_s=3.0: None)
+        monkeypatch.setattr(annotation_module.app_client, "fetch_current_app_id", lambda timeout_s=3.0: None)
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app_id, timeout_s=3.0: None)
+
+        with patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
+            resp = client.post("/topics/join-strategies/annotation/reveal")
+
+        assert resp.status_code == 200
+        assert "Stale checkpoint" in resp.text
+        assert "app-two-hours-old" in resp.text
+        # The plan is still shown (not hidden), just not silently/confidently:
+        assert "Broadcast hash join" in resp.text
+
+    def test_checkpoint_from_different_session_shows_stale_warning(self, tmp_path, monkeypatch):
+        annotations_dir = tmp_path / "annotations"
+        _write_checkpoint(annotations_dir, "join-strategies", app_id="app-old-session")
+        # A different application is live right now -- the checkpoint's
+        # app_id belongs to neither a running nor a completed app in the
+        # current driver process.
+        monkeypatch.setattr(
+            annotation_module.app_client, "fetch_all_app_ids", lambda timeout_s=3.0: ["app-new-session"]
+        )
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app_id, timeout_s=3.0: None)
+
+        with patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
+            resp = client.post("/topics/join-strategies/annotation/reveal")
+
+        assert resp.status_code == 200
+        assert "Stale checkpoint" in resp.text
+        assert "app-old-session" in resp.text
+
+    def test_just_completed_application_does_not_show_stale_warning(self, tmp_path, monkeypatch):
+        """Legitimate case (PLAN.md §3 design): a job just finished but the
+        driver isn't torn down yet -- fetch_all_app_ids() includes completed
+        (not just running) attempts, so this must NOT be flagged stale."""
+        annotations_dir = tmp_path / "annotations"
+        _write_checkpoint(annotations_dir, "join-strategies", app_id="app-just-finished")
+        monkeypatch.setattr(
+            annotation_module.app_client, "fetch_all_app_ids", lambda timeout_s=3.0: ["app-just-finished"]
+        )
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app_id, timeout_s=3.0: [])
+
+        with patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
+            resp = client.post("/topics/join-strategies/annotation/reveal")
+
+        assert resp.status_code == 200
+        assert "Stale checkpoint" not in resp.text
 
 
 class TestStageMetricsFragment:

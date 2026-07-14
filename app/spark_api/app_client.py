@@ -68,6 +68,31 @@ def fetch_current_app_id(timeout_s: float = 3.0) -> Optional[str]:
     return None
 
 
+def fetch_all_app_ids(timeout_s: float = 3.0) -> Optional[List[str]]:
+    """All application ids known to whatever driver process currently answers
+    at `:4040` -- both still-running *and* completed attempts within that
+    process's lifetime. Distinct from `fetch_current_app_id()`, which only
+    considers an application whose latest attempt is still actively running
+    (US-2.2's narrower "is a job in progress" question).
+
+    Used by the annotation Reveal flow (issue #16) to distinguish "this
+    checkpoint's app_id belongs to the driver session that's live right now"
+    (same process, possibly a just-completed job -- the legitimate case) from
+    "this checkpoint is from an entirely different/prior session" (a
+    torn-down-and-respawned cluster's driver is a brand-new process with no
+    memory of the old app_id at all). Returns `None` if `:4040` isn't
+    reachable or the response isn't shaped as documented -- same
+    degrade-gracefully contract as `fetch_current_app_id()`. Returns `[]`
+    (not `None`) if `:4040` is reachable but has genuinely recorded no
+    applications yet -- that's a meaningful "reachable, but this id isn't
+    here" answer, not an error.
+    """
+    apps = _get_json(f"{config.DRIVER_APP_UI_URL}/api/v1/applications", timeout_s)
+    if not isinstance(apps, list):
+        return None
+    return [app["id"] for app in apps if isinstance(app, dict) and isinstance(app.get("id"), str)]
+
+
 def fetch_stages(app_id: str, timeout_s: float = 3.0) -> Optional[List[Dict[str, Any]]]:
     """Raw stage list from `/api/v1/applications/<id>/stages`, as returned by
     the REST API (US-2.2 -- "sourced from the REST API, not re-derived").
