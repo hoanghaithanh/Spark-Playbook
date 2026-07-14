@@ -59,12 +59,13 @@ class TestMissingTopicFailsClearly:
                 loader.load_topic("no-manifest-topic")
 
     def test_missing_concept_file_fails_on_access_not_silently(self, tmp_path):
-        """load_topic() itself only requires manifest.yaml to exist (matching
-        `_topic_dir`/`load_topic`'s actual checks); a manifest pointing at a
-        concept.md that doesn't exist on disk fails the moment the content is
-        actually read (concept_html()), not silently returning empty/wrong
-        content. This documents current behavior -- see report for whether a
-        louder failure at load_topic() time would be preferable."""
+        """load_topic() requires manifest.yaml *and* (since issue #5's fix)
+        notebook_path to exist at load time, but concept.md is intentionally
+        NOT eagerly validated the same way -- it fails the moment the content
+        is actually read (concept_html()), not silently returning empty/wrong
+        content and not at load_topic() time. notebook.ipynb is created here
+        so this test isolates concept.md's lazy-read behavior specifically,
+        independent of issue #5's now-eager notebook check."""
         topic_dir = tmp_path / "broken-topic"
         topic_dir.mkdir()
         (topic_dir / "manifest.yaml").write_text(
@@ -72,22 +73,20 @@ class TestMissingTopicFailsClearly:
                        "notebook": "notebook.ipynb"}),
             encoding="utf-8",
         )
-        # Deliberately do NOT create concept.md or notebook.ipynb.
+        (topic_dir / "notebook.ipynb").write_text("{}", encoding="utf-8")
+        # Deliberately do NOT create concept.md.
 
         with patch.object(config, "CONTENT_DIR", tmp_path):
             topic = loader.load_topic("broken-topic")  # does not raise yet
             with pytest.raises(FileNotFoundError):
                 topic.concept_html()
 
-    def test_missing_notebook_file_not_validated_at_load_time(self, tmp_path):
-        """Gap found during test-writing: load_topic() never checks that
-        notebook_path actually exists on disk -- unlike concept.md (which
-        fails loudly the moment concept_html() is called), a topic with a
-        missing notebook.ipynb loads without error and only surfaces as a
-        problem later, when JupyterLab tries to open a 404'd path inside the
-        iframe. This is a real, currently-untested failure mode; flagged in
-        the report rather than treated as a hard test failure since it's a
-        judgment call on where/how loudly it should fail."""
+    def test_missing_notebook_file_raises_clearly_at_load_time(self, tmp_path):
+        """Issue #5 fix: load_topic() now validates notebook_path.exists(),
+        matching how a missing manifest.yaml is already handled -- a manifest
+        with a typo'd/missing `notebook:` path fails loudly at load_topic()
+        time instead of loading silently and only surfacing later as a 404
+        inside the Jupyter iframe."""
         topic_dir = tmp_path / "no-notebook-topic"
         topic_dir.mkdir()
         (topic_dir / "manifest.yaml").write_text(
@@ -99,11 +98,8 @@ class TestMissingTopicFailsClearly:
         # notebook.ipynb deliberately absent.
 
         with patch.object(config, "CONTENT_DIR", tmp_path):
-            topic = loader.load_topic("no-notebook-topic")  # currently succeeds
-            assert not topic.notebook_path.exists()
-            # notebook_relpath is still produced (used for the Jupyter iframe
-            # src URL) even though the file it points at doesn't exist.
-            assert topic.notebook_relpath == "content/no-notebook-topic/notebook.ipynb"
+            with pytest.raises(loader.TopicNotFoundError, match="notebook.ipynb"):
+                loader.load_topic("no-notebook-topic")
 
 
 class TestContentAsDataNoCaching:

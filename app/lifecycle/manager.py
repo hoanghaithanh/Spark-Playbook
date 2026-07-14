@@ -19,6 +19,7 @@ single-user/single-process, so one in-memory instance is the whole state.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -27,6 +28,8 @@ from typing import Optional
 from app import config
 from app.lifecycle import compose_ops, readiness, renderer
 from app.lifecycle.renderer import ClusterParams, ValidationResult
+
+logger = logging.getLogger(__name__)
 
 
 class ClusterState(str, Enum):
@@ -152,7 +155,15 @@ class ClusterManager:
             except asyncio.CancelledError:
                 pass
             except Exception:
-                pass  # the failed task already recorded its own error/message
+                # The failed task already recorded its own error/message on
+                # self.error/self.message, so control flow doesn't change
+                # here — but the exception itself must not vanish without a
+                # durable trace (issue #1), since self.message gets
+                # overwritten by the very next state transition below.
+                logger.exception(
+                    "Unexpected exception from a cancelled/superseded spawn task "
+                    "during cancel-and-replace teardown."
+                )
 
         self.state = ClusterState.TEARING_DOWN
         self.message = "Tearing down previous stack (if any)..."
@@ -172,6 +183,19 @@ class ClusterManager:
             down_result = await compose_ops.down()
             if not down_result.ok:
                 self.message = f"WARNING: teardown exited {down_result.returncode}; continuing."
+                # self.message above is transient status shown in the UI and
+                # gets overwritten by the very next state transition a few
+                # lines down — log durably too so the failure survives in
+                # server logs (issue #1). Behavior is unchanged: still
+                # continues to up() per PLAN.md's original design intent (a
+                # real port/name collision in up() is the safety net if
+                # teardown didn't fully complete).
+                logger.warning(
+                    "Pre-spawn teardown ('docker compose down') exited %s; "
+                    "continuing to up() anyway. stderr: %s",
+                    down_result.returncode,
+                    down_result.stderr.strip(),
+                )
 
             self.state = ClusterState.STARTING
             self.message = "Starting containers (docker compose up -d)..."

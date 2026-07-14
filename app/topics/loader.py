@@ -76,12 +76,23 @@ def load_topic(topic_id: str) -> Topic:
         aqe_enabled=cd.get("aqe_enabled", config.DEFAULTS["aqe_enabled"]),
     )
 
+    notebook_path = topic_dir / data.get("notebook", "notebook.ipynb")
+    if not notebook_path.exists():
+        # Unlike concept.md (which fails loudly the moment concept_html() is
+        # called), a manifest with a typo'd/missing `notebook:` path used to
+        # load silently and only surface later as a 404 inside the Jupyter
+        # iframe (issue #5). Fail clearly at load time instead, consistent
+        # with how a missing manifest.yaml is already handled above.
+        raise TopicNotFoundError(
+            f"Topic {topic_id!r} declares notebook {notebook_path!r} but that file does not exist"
+        )
+
     return Topic(
         id=data.get("id", topic_id),
         title=data.get("title", topic_id),
         order=data.get("order", 0),
         content_path=topic_dir / data.get("content", "concept.md"),
-        notebook_path=topic_dir / data.get("notebook", "notebook.ipynb"),
+        notebook_path=notebook_path,
         cluster_defaults=cluster_defaults,
         requires_kafka=bool(data.get("requires_kafka", False)),
         annotation=data.get("annotation") or {},

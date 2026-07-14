@@ -8,6 +8,7 @@ tests run in milliseconds with no Docker/subprocess involved.
 from __future__ import annotations
 
 import asyncio
+import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -233,9 +234,13 @@ class TestPreSpawnTeardownFailureDoesNotAbort:
     """manager.py's actual behavior when `compose_ops.down()` returns a
     non-zero exit during the per-spawn teardown step (PLAN.md §2 step 3):
     it records a WARNING-prefixed status message and continues to `up()`
-    rather than aborting the spawn. This test characterizes that as the
-    real, current behavior -- see the written report for whether this is
-    judged safe/intentional or a gap worth a human decision.
+    rather than aborting the spawn (PLAN.md's original design intent -- a
+    real port/name collision in up() is the natural safety net if teardown
+    didn't fully complete). Issue #1 (Major) fixed the observability gap
+    around this: the failure is now also durably logged via the module
+    logger (`logger.warning(...)`), since `self.message` gets overwritten
+    by the very next state transition two lines later and was previously
+    the only record of the failure.
     """
 
     @pytest.mark.asyncio
@@ -306,3 +311,58 @@ class TestPreSpawnTeardownFailureDoesNotAbort:
         await fresh_manager.spawn(params())
 
         assert any("WARNING" in m for m in seen_messages)
+
+    @pytest.mark.asyncio
+    async def test_down_failure_is_durably_logged(self, fresh_manager, monkeypatch, caplog):
+        """Issue #1 fix: unlike `self.message` (overwritten by the next state
+        transition), the failure must survive in the server logs via the
+        module logger, so it's actually observable after the fact."""
+        down_results = [OK_DOWN, CommandResult(returncode=1, stdout="", stderr="boom: still up")]
+
+        async def _down():
+            return down_results.pop(0)
+
+        monkeypatch.setattr(manager_module.compose_ops, "down", _down)
+        monkeypatch.setattr(manager_module.compose_ops, "up", AsyncMock(return_value=OK_UP))
+        monkeypatch.setattr(manager_module.readiness, "wait_for_ready", AsyncMock(return_value=ready()))
+        monkeypatch.setattr(manager_module.renderer, "render", lambda p: None)
+
+        with caplog.at_level(logging.WARNING, logger="app.lifecycle.manager"):
+            await fresh_manager.spawn(params())
+
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert warning_records, "expected a durable WARNING log record for the teardown failure"
+        assert any("teardown" in r.message.lower() for r in warning_records)
+        assert any("boom: still up" in r.message for r in warning_records)
+
+
+class TestCancelledTaskUnexpectedExceptionIsLogged:
+    """Issue #1 fix: `_cancel_and_teardown_locked`'s `except Exception: pass`
+    used to silently swallow anything beyond CancelledError when awaiting a
+    just-cancelled task. It must now log via `logger.exception(...)` while
+    keeping the same "continue anyway" control flow (cancel-and-replace still
+    proceeds to its own teardown/render/up regardless)."""
+
+    @pytest.mark.asyncio
+    async def test_unexpected_exception_from_cancelled_task_is_logged(self, fresh_manager, caplog):
+        async def _bad_cleanup():
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                raise RuntimeError("boom during cleanup")
+
+        fresh_manager._task = asyncio.create_task(_bad_cleanup())
+        await asyncio.sleep(0.01)  # let it start sleeping
+
+        with caplog.at_level(logging.ERROR, logger="app.lifecycle.manager"):
+            # Directly exercises the internal method under test; caller
+            # normally holds _mutate_lock, which isn't needed for this
+            # single-coroutine test.
+            await fresh_manager._cancel_and_teardown_locked()
+
+        error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert error_records, "expected the unexpected exception to be logged, not swallowed"
+        assert any("unexpected exception" in r.message.lower() for r in error_records)
+        # Control flow unchanged: teardown still proceeds to IDLE-bound state
+        # regardless of the swallowed exception.
+        assert fresh_manager.state == ClusterState.TEARING_DOWN

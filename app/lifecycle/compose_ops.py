@@ -31,7 +31,19 @@ async def _run(*args: str) -> CommandResult:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await proc.communicate()
+    try:
+        stdout, stderr = await proc.communicate()
+    except asyncio.CancelledError:
+        # The *task* awaiting this coroutine was cancelled (D5 cancel-and-
+        # replace) — without this, the underlying `docker compose` OS process
+        # is left running detached, able to keep creating/starting containers
+        # after the cancelling caller has already issued its own fresh
+        # down()/up(), undermining PLAN.md §6/R4's "awaited down before up"
+        # guarantee. Kill it and reap it before propagating the cancellation.
+        if proc.returncode is None:
+            proc.kill()
+            await proc.wait()
+        raise
     return CommandResult(
         returncode=proc.returncode if proc.returncode is not None else -1,
         stdout=stdout.decode("utf-8", errors="replace"),

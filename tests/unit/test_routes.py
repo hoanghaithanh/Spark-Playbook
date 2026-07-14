@@ -41,17 +41,14 @@ class TestTopicPage:
         assert "Exchange" in resp.text  # concept.md content actually rendered, not a stub
 
     def test_get_unknown_topic_errors(self):
-        # loader.load_topic raises TopicNotFoundError for an unknown id; the
-        # route doesn't catch it. A real ASGI server (uvicorn) converts an
-        # unhandled exception into a 500 to the client -- use
-        # raise_server_exceptions=False here to observe that HTTP-layer
-        # outcome instead of TestClient's default of re-raising for
-        # debuggability. Verifies actual behavior rather than assuming a 404
-        # was implemented (it wasn't -- flagged in the report as a gap: an
-        # unknown topic id currently 500s instead of a clean 404).
-        no_raise_client = TestClient(app, raise_server_exceptions=False)
-        resp = no_raise_client.get("/topics/does-not-exist")
-        assert resp.status_code == 500
+        # loader.load_topic raises TopicNotFoundError for an unknown id.
+        # app/main.py registers an @app.exception_handler(TopicNotFoundError)
+        # (issue #4 fix) that converts it into a clean 404 instead of letting
+        # it propagate as an unhandled exception (which a real ASGI server
+        # would otherwise turn into a raw 500).
+        resp = client.get("/topics/does-not-exist")
+        assert resp.status_code == 404
+        assert "does-not-exist" in resp.text
 
     def test_index_redirects_to_a_topic(self):
         resp = client.get("/", follow_redirects=False)

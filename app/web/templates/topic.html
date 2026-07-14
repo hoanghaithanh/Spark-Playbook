@@ -17,11 +17,13 @@
 
 <section class="cluster-panel">
   <h2>Cluster control</h2>
-  <div id="cluster-panel"
-       hx-get="/topics/{{ topic.id }}/panel"
-       hx-trigger="load"
-       hx-swap="outerHTML">
-    {% include "fragments/cluster_panel.html" %}
-  </div>
+  {# Server-rendered inline with the page's own fresh status (US-1.2) --
+     no extra hx-get/hx-trigger="load" here: that used to immediately
+     re-fetch the exact same fragment via HTMX on every page load (a
+     redundant double-fetch) and, worse, wrapped this include in a second
+     element that duplicated the fragment's own id="cluster-panel". The
+     fragment's root div below is now the single #cluster-panel that the
+     spawn/teardown forms' hx-target="#cluster-panel" swaps in place. #}
+  {% include "fragments/cluster_panel.html" %}
 </section>
 {% endblock %}

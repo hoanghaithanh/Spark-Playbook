@@ -50,13 +50,13 @@ async def topic_page(request: Request, topic_id: str) -> HTMLResponse:
     topic = loader.load_topic(topic_id)
     ctx = _panel_context(request, topic)
     ctx["concept_html"] = topic.concept_html()
-    return templates.TemplateResponse("topic.html", ctx)
+    return templates.TemplateResponse(request, "topic.html", ctx)
 
 
 @router.get("/topics/{topic_id}/panel", response_class=HTMLResponse)
 async def cluster_panel(request: Request, topic_id: str) -> HTMLResponse:
     topic = loader.load_topic(topic_id)
-    return templates.TemplateResponse("fragments/cluster_panel.html", _panel_context(request, topic))
+    return templates.TemplateResponse(request, "fragments/cluster_panel.html", _panel_context(request, topic))
 
 
 @router.post("/topics/{topic_id}/spawn", response_class=HTMLResponse)
@@ -81,11 +81,11 @@ async def spawn_cluster(
     # Bounded wait per PLAN.md §2: 60s default target, 90s hard cap for larger configs.
     timeout_s = config.READY_TIMEOUT_DEFAULT_S if worker_count <= 3 else config.READY_TIMEOUT_MAX_S
     await manager.spawn(params, timeout_s=timeout_s)
-    return templates.TemplateResponse("fragments/cluster_panel.html", _panel_context(request, topic))
+    return templates.TemplateResponse(request, "fragments/cluster_panel.html", _panel_context(request, topic))
 
 
 @router.post("/topics/{topic_id}/teardown", response_class=HTMLResponse)
 async def teardown_cluster(request: Request, topic_id: str) -> HTMLResponse:
     topic = loader.load_topic(topic_id)
     await manager.teardown()
-    return templates.TemplateResponse("fragments/cluster_panel.html", _panel_context(request, topic))
+    return templates.TemplateResponse(request, "fragments/cluster_panel.html", _panel_context(request, topic))
