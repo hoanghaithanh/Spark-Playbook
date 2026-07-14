@@ -26,6 +26,15 @@ WEB_STATIC_DIR = APP_DIR / "web" / "static"
 PROJECT_NAME = "sparkpb"
 IMAGE_NAME = "sparkpb/spark:4.0.3"
 
+# The FastAPI app's own origin, per PLAN.md §1's architecture diagram
+# ("browser at http://localhost:8000"). Referenced by driver/jupyter_config.py
+# (PLAN.md §6/R3, issue #7) for the CSP `frame-ancestors` allowlist that lets
+# the embedded JupyterLab iframe render on this app's page — see that file's
+# module docstring for why it can't just import this constant (different
+# process/container, plain-Python config file with no access to app/).
+APP_PORT = 8000
+APP_ORIGIN = f"http://localhost:{APP_PORT}"
+
 MASTER_JSON_URL = "http://localhost:8080/json/"
 MASTER_UI_URL = "http://localhost:8080"
 DRIVER_APP_UI_URL = "http://localhost:4040"
@@ -47,7 +56,41 @@ WORKER_CORES_RANGE = (1, 4)
 WORKER_MEMORY_GB_RANGE = (1, 8)
 
 # Resource ceiling, GB (PLAN.md §2 resource-ceiling check / R5).
-RESOURCE_CEILING_GB = 48
+#
+# Issue #6 (test-engineer acceptance validation, Phase 1): PLAN.md §2 named
+# "e.g. 48GB" only illustratively, as headroom on a 64GB host — it was never
+# checked against the UI's own documented ranges. With WORKER_COUNT_RANGE
+# capped at 5 and WORKER_MEMORY_GB_RANGE capped at 8, and driver_memory_gb
+# fixed at DEFAULTS["driver_memory_gb"] (2GB, not user-adjustable via the
+# form), the maximum total any legitimate UI spawn can ever request is
+# 1 (master) + 5*8 (workers) + 2 (driver) = 43GB — always under 48GB. That
+# made US-1.2's "the UI rejects an over-budget config" acceptance criterion
+# structurally unreachable through real use: the ceiling check existed in
+# code but could never actually fire.
+#
+# Decision: lower the ceiling to 32GB (option (a) from the filed issue, not
+# widening the ranges (b) or declaring the ceiling deliberately unreachable
+# (c)) — a routine number tweak, not a design change, so handled directly
+# rather than escalated to the architect. 32GB was chosen, not just any
+# reachable value, to satisfy two constraints simultaneously:
+#   - It must stay >= the resource budget doc's explicitly *supported*
+#     scale-up scenario ("a single worker may be scaled up to 8GB, for
+#     skew/spill demos" — docs/requirements/spark-playbook-mvp.md). Phase 1's
+#     template applies worker_memory_gb uniformly to every worker (no
+#     per-worker override yet), so the closest reachable equivalent today is
+#     the *default worker count* at 8GB each: 1 + 3*8 + 2 = 27GB. That must
+#     keep passing, so the ceiling must be > 27.
+#   - It must still be low enough that some in-range combinations legitimately
+#     exceed it, so the rejection path is actually reachable in normal usage
+#     (not just at the extreme top-right corner of every range at once) --
+#     e.g. worker_count=4, worker_memory_gb=8 -> 1+32+2=35GB, and
+#     worker_count=5, worker_memory_gb=8 -> 1+40+2=43GB, both now correctly
+#     rejected, while worker_count=5, worker_memory_gb=4 -> 1+20+2=23GB and
+#     the 27GB single-scale-up demo above both still pass.
+# 32GB comfortably satisfies both, and still leaves 32GB of headroom on the
+# 64GB host (R5's actual safety intent), so it isn't a weakening of the
+# safety margin -- just a number that makes the existing check reachable.
+RESOURCE_CEILING_GB = 32
 MASTER_MEMORY_GB = 1
 
 # Readiness wait bounds (PLAN.md §2).

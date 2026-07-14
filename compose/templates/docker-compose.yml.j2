@@ -106,12 +106,26 @@ services:
     # spark-submit-based jobs (compose/smoke_test.py) work fine. Export it
     # (py4j's zip filename resolved via glob, not hardcoded, so it survives a
     # Spark version bump in Dockerfile.spark) before launching Jupyter.
+    #
+    # PLAN.md §6/R3 fix (issue #7): `--config=` points Jupyter at
+    # driver/jupyter_config.py, which sets the CSP `frame-ancestors` header
+    # allowing the FastAPI app's origin to embed this server in an iframe
+    # (US-1.3) -- without it, the browser's default same-origin framing
+    # policy blocks the embed and the iframe renders blank. No extra volume
+    # mount is declared for it: the whole repo is already bind-mounted at
+    # /workspace below (same reason content/<topic>/notebook.ipynb needs no
+    # dedicated mount either), so driver/jupyter_config.py is already visible
+    # at /workspace/driver/jupyter_config.py inside the container.
+    # `--ServerApp.allow_origin` is intentionally NOT set here anymore (it
+    # used to be hardcoded to '*' on this command line) -- jupyter_config.py
+    # is now the single source of truth for that setting, scoped to the
+    # app's actual origin instead of a wildcard.
     command: >-
       bash -c "export PYTHONPATH=/opt/spark/python:$(ls /opt/spark/python/lib/py4j-*-src.zip):$$PYTHONPATH &&
       /usr/local/bin/jupyter lab
+      --config=/workspace/driver/jupyter_config.py
       --ip=0.0.0.0 --port=8888 --no-browser --allow-root
       --ServerApp.token='' --ServerApp.password=''
-      --ServerApp.allow_origin='*'
       --notebook-dir=/workspace"
     depends_on:
       - spark-master

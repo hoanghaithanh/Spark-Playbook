@@ -226,8 +226,17 @@ learner writes no connection boilerplate (US-0.5).
 
 **Resource ceiling (US-1.2 sanity check, pre-spawn).** Before rendering, the app computes
 `master(1GB) + Σ worker_memory_gb + driver(2GB) + (kafka ≈ 2GB if included)` and rejects the configuration if it
-exceeds a conservative ceiling (e.g. 48GB, leaving headroom on the 64GB host) with a clear message, *before* any
-container starts.
+exceeds a conservative ceiling with a clear message, *before* any container starts.
+
+**Implemented value: 32GB, not the 48GB originally sketched here.** Phase 1 acceptance validation (issue #6) found
+that 48GB was unreachable through the UI's own documented ranges — `worker_count` ≤ 5 and `worker_memory_gb` ≤ 8
+with a fixed 2GB driver cap the maximum any real spawn can request at `1 + 5×8 + 2 = 43GB`, always under 48GB, so
+the "UI rejects an over-budget config" acceptance criterion could never actually fire. 32GB was chosen instead:
+still ≥ the resource-budget doc's explicitly supported "single worker scaled up to 8GB" scale-up scenario (27GB at
+the default worker count), while low enough that legitimate in-range combinations (e.g. 4-5 workers at 8GB each)
+genuinely get rejected — restoring the acceptance criterion as reachable through real use, while still leaving
+32GB of headroom on the 64GB host (R5's actual safety intent unchanged). See `app/config.py::RESOURCE_CEILING_GB`
+for the full rationale.
 
 ### Up / down / wait-for-ready sequence
 
@@ -611,9 +620,10 @@ await barrier or pre-check was bypassed.
 
 **Risk:** A large worker/memory config plus Kafka could exceed comfortable host RAM.
 
-**Mitigation:** the pre-spawn resource-ceiling check (§2) rejects configs above ~48GB requested before any
-container starts, keeping headroom on the 64GB host (US-0.1, US-1.2). **Noticed by:** a clear pre-spawn rejection
-message rather than a mid-spawn OOM.
+**Mitigation:** the pre-spawn resource-ceiling check (§2) rejects configs above the ceiling requested before any
+container starts, keeping headroom on the 64GB host (US-0.1, US-1.2). Implemented as 32GB, not the originally
+sketched ~48GB — see §2's "Implemented value" note for why. **Noticed by:** a clear pre-spawn rejection message
+rather than a mid-spawn OOM.
 
 ### R6 — Spark 4.0 ANSI SQL mode changes example behavior vs 3.x references
 

@@ -23,9 +23,12 @@ real `:8080/json/` readiness poll -> `ClusterManager.teardown()`.
 from __future__ import annotations
 
 import os
+import urllib.error
+import urllib.request
 
 import pytest
 
+from app import config
 from app.lifecycle.manager import ClusterManager, ClusterState
 from app.lifecycle.renderer import ClusterParams
 
@@ -56,6 +59,54 @@ async def test_spawn_a_real_single_worker_cluster_and_tear_it_down():
         assert outcome.ok is True, f"spawn failed: {outcome.status.message}"
         assert outcome.status.state == ClusterState.READY
         assert outcome.status.alive_workers == 1
+    finally:
+        final = await manager.teardown()
+        assert final.state == ClusterState.IDLE
+
+
+@pytest.mark.skipif(not _docker_tests_enabled(), reason=_SKIP_REASON)
+@pytest.mark.asyncio
+async def test_jupyter_csp_header_allows_the_app_origin_to_frame_it():
+    """Issue #7 regression test (PLAN.md §6/R3, US-1.3): the embedded
+    JupyterLab iframe used to render blank because Jupyter's default CSP
+    (`frame-ancestors 'self'`) blocked framing from the FastAPI app's
+    different origin. `driver/jupyter_config.py` (loaded via
+    `jupyter lab --config=/workspace/driver/jupyter_config.py`, wired in
+    `compose/templates/docker-compose.yml.j2`) fixes this by setting a CSP
+    that explicitly allows `app.config.APP_ORIGIN`.
+
+    This can only be verified against a real running Jupyter server (the
+    header is emitted by the actual Tornado process reading the mounted
+    config file inside the container), so it lives here in the Docker
+    integration suite rather than as a pure unit test. A full Playwright
+    browser-level check (confirming the iframe actually renders real
+    JupyterLab content, not just the header) was performed manually during
+    development -- see the developer's report for that evidence; this test
+    is the automatable, CI-friendly subset of that verification.
+    """
+    manager = ClusterManager()
+    params = ClusterParams(worker_count=1, worker_cores=1, worker_memory_gb=1, driver_memory_gb=1)
+
+    try:
+        outcome = await manager.spawn(params, timeout_s=90)
+        assert outcome.ok is True, f"spawn failed: {outcome.status.message}"
+
+        req = urllib.request.Request(f"{config.JUPYTER_URL}/lab", method="HEAD")
+        try:
+            resp = urllib.request.urlopen(req, timeout=5)
+        except urllib.error.HTTPError as e:
+            # Jupyter's /lab endpoint can 405 on HEAD depending on version --
+            # the headers are still present on the error response itself.
+            resp = e
+
+        csp = resp.headers.get("Content-Security-Policy", "")
+        assert "frame-ancestors" in csp, f"no frame-ancestors directive in CSP: {csp!r}"
+        assert config.APP_ORIGIN in csp, f"app origin {config.APP_ORIGIN!r} not allowed by CSP: {csp!r}"
+        assert "'self'" in csp
+
+        # Jupyter must not also emit the legacy X-Frame-Options header, which
+        # would independently block framing regardless of the CSP above.
+        assert resp.headers.get("X-Frame-Options") is None
     finally:
         final = await manager.teardown()
         assert final.state == ClusterState.IDLE
