@@ -1,0 +1,64 @@
+{% import "dashboard/macros.html" as m %}
+{% if not snapshot.cluster_active %}
+<div style="padding:80px 28px;text-align:center;color:#8b93a3;">No active cluster.</div>
+{% elif not snapshot.job %}
+<div style="padding:80px 28px;text-align:center;color:#8b93a3;">No active application on the driver (:4040) yet.</div>
+{% else %}
+<div style="display:flex;align-items:center;gap:14px;padding:14px 28px;background:#fff;border-bottom:1px solid #e5e7eb;">
+  <a href="#" onclick="dashGoTo('overview');return false;" style="font-size:13px;font-weight:600;color:#4a5061;">&larr; Overview</a>
+  <div style="font-size:14px;font-weight:600;">{{ snapshot.job.name }}</div>
+  <div style="font-size:12px;color:#8b93a3;">{{ snapshot.job.app_id }}</div>
+  <div style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:100px;font-size:12px;font-weight:600;background:{{ snapshot.job.status_bg }};color:{{ snapshot.job.status_color }};margin-left:8px;">
+    <span style="width:6px;height:6px;border-radius:50%;background:{{ snapshot.job.status_color }};"></span>
+    {{ snapshot.job.status_label }}
+  </div>
+  <div style="margin-left:auto;display:flex;gap:24px;font-size:12px;color:#8b93a3;">
+    <span>Elapsed <strong style="color:#1a1d23;">{{ snapshot.job.elapsed }}</strong></span>
+    <span>ETA <strong style="color:#1a1d23;">{{ snapshot.job.eta_label }}</strong></span>
+  </div>
+</div>
+
+<div style="padding:24px 28px;">
+  <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:20px;">
+    <div style="font-size:13px;font-weight:600;color:#4a5061;margin-bottom:16px;">Stage timeline</div>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      {% for stage in snapshot.stages %}
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="width:110px;font-size:12px;color:#4a5061;flex:none;">{{ stage.label }}</div>
+        <div style="flex:1;height:26px;background:#f0f1f4;border-radius:6px;position:relative;overflow:hidden;">
+          <div style="position:absolute;left:{{ stage.start_pct }}%;width:{{ stage.width_pct }}%;height:100%;background:{{ stage.color }};border-radius:6px;display:flex;align-items:center;padding:0 8px;">
+            <span style="font-size:11px;color:#fff;font-weight:600;white-space:nowrap;">{{ stage.duration_label }}</span>
+          </div>
+        </div>
+        <div style="width:160px;font-size:11.5px;color:#8b93a3;flex:none;text-align:right;">{{ stage.note }}</div>
+      </div>
+      {% else %}
+      <p style="color:#8b93a3;font-size:12.5px;">No stage data yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if snapshot.signal_cards %}
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px;">
+    {% for card in snapshot.signal_cards %}
+    <div style="background:#fff;border:1px solid {{ card.border_color }};border-radius:12px;padding:16px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <span style="font-size:15px;">{{ card.icon }}</span>
+        <div style="font-size:12.5px;font-weight:700;color:{{ card.color }};">{{ card.category }}</div>
+      </div>
+      <div style="font-size:12.5px;color:#4a5061;line-height:1.5;">{{ card.detail }}</div>
+      {% if card.deep_link %}<a href="{{ card.deep_link }}" target="_blank" rel="noopener" style="font-size:11.5px;">Open in Spark UI &rarr;</a>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:600;color:#4a5061;">Partition distribution &middot; {{ snapshot.job.stage_name }}</div>
+      <div style="font-size:11.5px;color:#8b93a3;">{{ snapshot.partition_summary }}</div>
+    </div>
+    {{ m.partition_table(snapshot.partitions, show_node_column=True) }}
+  </div>
+</div>
+{% endif %}

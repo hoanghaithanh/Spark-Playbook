@@ -114,3 +114,44 @@ READY_TIMEOUT_MAX_S = 90
 # Runtime stage-metrics polling interval (PLAN.md §3, US-2.2: target 5-10s,
 # D4's HTMX `hx-trigger="every 6s"` idiom).
 STAGE_POLL_INTERVAL_S = 6
+
+# Realtime cluster monitoring dashboard (Phase 2.5, ADR
+# docs/architecture/realtime-monitoring-dashboard.md, D-B/D-C).
+#
+# Collector cadence: the ADR commits to an effective end-to-end latency of
+# <=3s (not a hard 2s) because `docker stats` inherently needs ~1-2s to
+# produce a CPU% delta sample -- see ADR D-B.
+DASHBOARD_COLLECTOR_INTERVAL_S = 2.0
+# Ring buffer length for the Node Detail sparklines (ADR D-E: "20 buckets of
+# CPU/RAM history" -- ephemeral, in-memory only, not the no-history non-goal).
+DASHBOARD_HISTORY_LENGTH = 20
+
+# Color threshold system (ADR "Component / data design" -- Threshold color
+# system, kept from the mockup). Applied server-side by the fragment
+# renderers, not client JS.
+DASHBOARD_COLOR_GREEN = "#16a34a"
+DASHBOARD_COLOR_AMBER = "#d97706"
+DASHBOARD_COLOR_RED = "#dc2626"
+DASHBOARD_COLOR_MASTER_BADGE = "#7c3aed"
+
+DASHBOARD_CPU_WARN_PCT = 70
+DASHBOARD_CPU_CRIT_PCT = 88
+DASHBOARD_RAM_WARN_PCT = 75
+DASHBOARD_RAM_CRIT_PCT = 90
+DASHBOARD_GC_WARN_MS = 20
+DASHBOARD_GC_CRIT_MS = 40
+
+# Skew threshold used by diagnostics.py (task/partition size vs. the stage's
+# own median) -- a partition at or above this multiple of the median is
+# flagged. Chosen to match the mockup's own worked example (worker-2's ~1.7x
+# median partitions, ~5x for the most extreme ones) while staying low enough
+# to actually fire on realistic AQE-topic skew data, not just extreme cases.
+DASHBOARD_SKEW_MEDIAN_MULTIPLE = 1.5
+
+# CPU core limits for containers whose `deploy.resources.limits.cpus` in
+# `compose/templates/docker-compose.yml.j2` isn't driven by a per-worker
+# variable (worker cpu limit is `worker_cores`, already available on
+# `ClusterParams`) -- master is hardcoded `"1"`, driver is hardcoded `"2"` in
+# the template (ADR D-C caveat: CPU% normalization needs the real limit).
+DASHBOARD_MASTER_CPU_CORES = 1.0
+DASHBOARD_DRIVER_CPU_CORES = 2.0

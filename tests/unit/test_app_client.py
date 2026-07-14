@@ -118,6 +118,44 @@ class TestFetchStages:
             assert app_client.fetch_stages("app-1") is None
 
 
+class TestFetchExecutors:
+    def test_returns_raw_executor_list(self):
+        executors = [{"id": "driver", "hostPort": "spark-driver:7079"}]
+        with _mock_urlopen(executors):
+            assert app_client.fetch_executors("app-1") == executors
+
+    def test_unreachable_endpoint_returns_none(self):
+        with patch("urllib.request.urlopen", side_effect=TimeoutError()):
+            assert app_client.fetch_executors("app-1") is None
+
+
+class TestFetchTaskList:
+    def test_returns_raw_task_list(self):
+        tasks = [{"taskId": 1, "index": 0, "host": "172.19.0.3"}]
+        with _mock_urlopen(tasks):
+            result = app_client.fetch_task_list("app-1", stage_id=3, attempt_id=0)
+        assert result == tasks
+
+    def test_passes_a_length_param_so_the_endpoint_does_not_silently_paginate(self):
+        """Issue found by running against a real 200-task stage: the REST
+        endpoint defaults to returning only the first 20 tasks unless
+        `length` is passed explicitly."""
+        captured_urls = []
+
+        def _fake_urlopen(url, timeout=None):
+            captured_urls.append(url)
+            return _FakeResponse([])
+
+        with patch("urllib.request.urlopen", side_effect=_fake_urlopen):
+            app_client.fetch_task_list("app-1", stage_id=3, attempt_id=0, length=1000)
+
+        assert "length=1000" in captured_urls[0]
+
+    def test_unreachable_endpoint_returns_none(self):
+        with patch("urllib.request.urlopen", side_effect=TimeoutError()):
+            assert app_client.fetch_task_list("app-1", stage_id=3) is None
+
+
 class TestStageUiUrl:
     def test_deep_links_to_specific_stage_not_landing_page(self):
         url = app_client.stage_ui_url(3, attempt_id=1)

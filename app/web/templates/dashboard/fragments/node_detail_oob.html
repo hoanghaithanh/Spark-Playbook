@@ -1,0 +1,6 @@
+{% import "dashboard/macros.html" as m %}
+<div id="node-detail-container" hx-swap-oob="true">
+{% for node in snapshot.nodes %}
+{{ m.node_detail_block(node, snapshot.partitions | selectattr("node", "equalto", node.name) | list) }}
+{% endfor %}
+</div>

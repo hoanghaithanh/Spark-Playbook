@@ -10,6 +10,10 @@
 <body>
   <header class="site-header">
     <a class="brand" href="/">Spark Playbook</a>
+    {# Persistent nav link (US-5.6, ADR D-E) -- always reachable, not
+       conditioned on cluster state; /dashboard itself renders the
+       "no active cluster" empty state when there's nothing to show. #}
+    <a class="dashboard-link" href="/dashboard">Cluster Monitor</a>
   </header>
   <main class="content">
     {% block content %}{% endblock %}

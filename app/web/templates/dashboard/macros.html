@@ -1,0 +1,165 @@
+{# Shared rendering pieces for the monitoring dashboard (US-5.1-5.4).
+   Mirrors docs/architecture/realtime-monitoring-dashboard-mockup.dc.html's
+   layout/colors *except* the D-A change: no suggestion/fix text anywhere
+   (see SignalCard's docstring in app/monitoring/model.py -- there is no
+   field to render one from). #}
+
+{% macro node_card(node) %}
+<div class="dash-node-card" style="cursor:pointer;background:#fff;border:1px solid {{ node.border_color }};border-radius:12px;padding:18px;box-shadow:0 1px 2px rgba(16,24,40,.04);"
+     data-node="{{ node.name }}" onclick="dashSelectNode('{{ node.name }}')">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+    <div style="width:8px;height:8px;border-radius:50%;background:{{ node.status_color }};flex:none;"></div>
+    <div style="font-size:14px;font-weight:600;">{{ node.name }}</div>
+    {% if node.is_master %}
+    <span style="font-size:10px;font-weight:700;letter-spacing:.04em;color:{{ config.DASHBOARD_COLOR_MASTER_BADGE }};background:#f3ebff;padding:2px 6px;border-radius:5px;">MASTER</span>
+    {% endif %}
+    <div style="margin-left:auto;font-size:11px;color:#8b93a3;">{{ node.host }}</div>
+  </div>
+
+  {% if not node.available %}
+  <div style="font-size:12.5px;color:#8b93a3;padding:10px 0;">Container not available (stopped or removed).</div>
+  {% else %}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 14px;margin-bottom:14px;">
+    <div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:#8b93a3;margin-bottom:4px;">
+        <span>CPU</span><span style="font-weight:600;color:{{ node.cpu_color }};">{{ node.cpu_label }}</span>
+      </div>
+      <div style="height:6px;background:#eef0f3;border-radius:4px;overflow:hidden;">
+        <div style="height:100%;width:{{ node.cpu_pct or 0 }}%;background:{{ node.cpu_color }};border-radius:4px;"></div>
+      </div>
+    </div>
+    <div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:#8b93a3;margin-bottom:4px;">
+        <span>RAM</span><span style="font-weight:600;color:{{ node.ram_color }};">{{ node.ram_label }}</span>
+      </div>
+      <div style="height:6px;background:#eef0f3;border-radius:4px;overflow:hidden;">
+        <div style="height:100%;width:{{ node.ram_pct or 0 }}%;background:{{ node.ram_color }};border-radius:4px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding-top:12px;border-top:1px solid #f0f1f4;">
+    <div>
+      <div style="font-size:10px;color:#8b93a3;margin-bottom:2px;">Disk I/O</div>
+      <div style="font-size:12.5px;font-weight:600;">{{ node.disk_io }}</div>
+    </div>
+    <div>
+      <div style="font-size:10px;color:#8b93a3;margin-bottom:2px;">Net I/O</div>
+      <div style="font-size:12.5px;font-weight:600;">{{ node.net_io }}</div>
+    </div>
+    <div>
+      <div style="font-size:10px;color:#8b93a3;margin-bottom:2px;">GC time</div>
+      <div style="font-size:12.5px;font-weight:600;color:{{ node.gc_color }};">{{ node.gc_label }}</div>
+    </div>
+  </div>
+
+  {% if node.has_partitions %}
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:1px solid #f0f1f4;font-size:12px;">
+    <span style="color:#8b93a3;">Partitions handled</span>
+    <span style="font-weight:600;">{{ node.partition_count }}</span>
+  </div>
+  {% endif %}
+  {% endif %}
+
+  {% if node.flagged %}
+  <div style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:11.5px;color:#b91c1c;background:#fef2f2;padding:6px 8px;border-radius:6px;">
+    <span>&#9888;</span><span>{{ node.flag_reason }}</span>
+  </div>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{% macro partition_table(rows, show_node_column=True) %}
+<div style="display:grid;grid-template-columns:{% if show_node_column %}70px {% endif %}1fr 90px 90px 100px 100px 90px;gap:0 12px;font-size:11px;color:#8b93a3;padding:0 4px 8px;border-bottom:1px solid #f0f1f4;text-transform:uppercase;letter-spacing:.03em;">
+  {% if show_node_column %}<div>Node</div>{% endif %}<div>Partition</div><div>Size</div><div>Rows</div><div>Shuffle R/W</div><div>Time / ETA</div><div>Retries</div>
+</div>
+<div style="max-height:360px;overflow-y:auto;">
+  {% for p in rows %}
+  <div style="display:grid;grid-template-columns:{% if show_node_column %}70px {% endif %}1fr 90px 90px 100px 100px 90px;gap:0 12px;align-items:center;padding:9px 4px;border-bottom:1px solid #f7f7f8;background:{{ p.row_bg }};">
+    {% if show_node_column %}<div style="font-size:12px;font-weight:600;">{{ p.node }}</div>{% endif %}
+    <div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+        <div style="font-size:12px;">{{ p.id }}</div>
+        {% if p.is_skewed %}
+        <span style="font-size:9.5px;font-weight:700;color:#dc2626;background:#fef2f2;padding:1px 5px;border-radius:4px;">SKEW</span>
+        {% endif %}
+      </div>
+      <div style="height:5px;background:#eef0f3;border-radius:3px;overflow:hidden;width:90%;">
+        <div style="height:100%;width:{{ p.size_bar_pct }}%;background:{{ p.size_color }};border-radius:3px;"></div>
+      </div>
+    </div>
+    <div style="font-size:12px;color:{{ p.size_color }};font-weight:600;">{{ p.size_label }}</div>
+    <div style="font-size:12px;color:#4a5061;">{{ p.rows_label }}</div>
+    <div style="font-size:11.5px;color:#4a5061;">{{ p.shuffle_label }}</div>
+    <div style="font-size:12px;color:#4a5061;">{{ p.time_label }}</div>
+    <div style="font-size:12px;font-weight:600;color:{{ p.retries_color }};">{{ p.retries_label }}</div>
+  </div>
+  {% else %}
+  <p style="color:#8b93a3;font-size:12.5px;padding:12px 4px;">No partition/task data yet.</p>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{% macro node_detail_block(node, partitions) %}
+<div class="node-detail-block" data-node="{{ node.name }}" style="display:none;">
+  <div style="display:flex;align-items:center;gap:14px;padding:14px 28px;background:#fff;border-bottom:1px solid #e5e7eb;">
+    <a href="#" onclick="dashGoTo('overview');return false;" style="font-size:13px;font-weight:600;color:#4a5061;">&larr; Overview</a>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div style="width:8px;height:8px;border-radius:50%;background:{{ node.status_color }};"></div>
+      <div style="font-size:14px;font-weight:600;">{{ node.name }}</div>
+      {% if node.is_master %}
+      <span style="font-size:10px;font-weight:700;letter-spacing:.04em;color:{{ config.DASHBOARD_COLOR_MASTER_BADGE }};background:#f3ebff;padding:2px 6px;border-radius:5px;">MASTER</span>
+      {% endif %}
+    </div>
+    <div style="font-size:12px;color:#8b93a3;">{{ node.host }}</div>
+    {% if node.flagged %}
+    <div style="display:flex;align-items:center;gap:6px;margin-left:8px;font-size:11.5px;color:#b91c1c;background:#fef2f2;padding:4px 8px;border-radius:6px;">
+      <span>&#9888;</span><span>{{ node.flag_reason }}</span>
+    </div>
+    {% endif %}
+  </div>
+
+  <div style="padding:24px 28px;">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;">
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
+        <div style="font-size:11px;color:#8b93a3;margin-bottom:6px;">CPU (current)</div>
+        <div style="font-size:22px;font-weight:700;color:{{ node.cpu_color }};">{{ node.cpu_label }}</div>
+      </div>
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
+        <div style="font-size:11px;color:#8b93a3;margin-bottom:6px;">RAM (current)</div>
+        <div style="font-size:22px;font-weight:700;color:{{ node.ram_color }};">{{ node.ram_label }}</div>
+      </div>
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
+        <div style="font-size:11px;color:#8b93a3;margin-bottom:6px;">GC time</div>
+        <div style="font-size:22px;font-weight:700;color:{{ node.gc_color }};">{{ node.gc_label }}</div>
+      </div>
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
+        <div style="font-size:11px;color:#8b93a3;margin-bottom:6px;">Disk / Net I/O</div>
+        <div style="font-size:15px;font-weight:700;">{{ node.disk_io }} <span style="color:#c7cad2;">/</span> {{ node.net_io }}</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px;">
+        <div style="font-size:12.5px;font-weight:600;color:#4a5061;margin-bottom:12px;">CPU history</div>
+        <div style="display:flex;align-items:flex-end;gap:3px;height:70px;">
+          {% for h in node.cpu_history %}<div style="flex:1;background:{{ h.color }};height:{{ h.pct }}%;border-radius:2px 2px 0 0;"></div>{% else %}<span style="color:#8b93a3;font-size:11.5px;">No history yet.</span>{% endfor %}
+        </div>
+      </div>
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px;">
+        <div style="font-size:12.5px;font-weight:600;color:#4a5061;margin-bottom:12px;">RAM history</div>
+        <div style="display:flex;align-items:flex-end;gap:3px;height:70px;">
+          {% for h in node.ram_history %}<div style="flex:1;background:{{ h.color }};height:{{ h.pct }}%;border-radius:2px 2px 0 0;"></div>{% else %}<span style="color:#8b93a3;font-size:11.5px;">No history yet.</span>{% endfor %}
+        </div>
+      </div>
+    </div>
+
+    {% if node.has_partitions %}
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;">
+      <div style="font-size:13px;font-weight:600;color:#4a5061;margin-bottom:14px;">Partitions on {{ node.name }} · {{ node.partition_count or 0 }} total</div>
+      {{ partition_table(partitions, show_node_column=False) }}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endmacro %}

@@ -109,3 +109,38 @@ def stage_ui_url(stage_id: int, attempt_id: int = 0) -> str:
     """Deep link to the specific stage's page in the real Spark UI (US-2.2 --
     "not just the application's landing page")."""
     return f"{config.DRIVER_APP_UI_URL}/stages/stage/?id={stage_id}&attempt={attempt_id}"
+
+
+def fetch_executors(app_id: str, timeout_s: float = 3.0) -> Optional[List[Dict[str, Any]]]:
+    """Raw executor list from `/api/v1/applications/<id>/executors` (ADR D-D
+    -- GC time is a JVM metric with no Docker-stats source, but Spark already
+    exposes it per-executor here, including the driver as executor id
+    `"driver"`). Reused as a library dependency by
+    `app/monitoring/collector.py`; passed through unvalidated like
+    `fetch_stages()`, same "unreachable vs. unexpected shape" contract."""
+    url = f"{config.DRIVER_APP_UI_URL}/api/v1/applications/{app_id}/executors"
+    return _get_json(url, timeout_s)
+
+
+def fetch_task_list(
+    app_id: str, stage_id: int, attempt_id: int = 0, length: int = 1000, timeout_s: float = 3.0
+) -> Optional[List[Dict[str, Any]]]:
+    """Raw per-task list for one stage attempt, from
+    `/api/v1/applications/<id>/stages/<id>/<attempt>/taskList` -- the
+    per-task executor id / duration / input+shuffle bytes the monitoring
+    dashboard treats as "partitions" (requirements doc's measurability note:
+    "partition" and "task" are interchangeable for this feature).
+
+    `length` is passed through explicitly -- found by actually running this
+    against a real stage with 200 tasks: the endpoint silently paginates to
+    only the first **20** tasks if `length` is omitted, which made the
+    dashboard's partition table/skew detection look at an arbitrary task
+    subset instead of the whole stage. `length=1000` comfortably covers this
+    project's realistic worker/partition counts (PLAN.md's resource-ceiling
+    range) without needing real pagination support.
+    """
+    url = (
+        f"{config.DRIVER_APP_UI_URL}/api/v1/applications/{app_id}/stages/{stage_id}/{attempt_id}/taskList"
+        f"?length={length}"
+    )
+    return _get_json(url, timeout_s)

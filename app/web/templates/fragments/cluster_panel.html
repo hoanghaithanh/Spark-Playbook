@@ -53,6 +53,11 @@
     <p>
       Master UI: <a href="{{ master_ui_url }}" target="_blank" rel="noopener">{{ master_ui_url }}</a>
     </p>
+    {% if is_ready %}
+    <p>
+      <a href="/dashboard">Open live Cluster Monitor &rarr;</a>
+    </p>
+    {% endif %}
   </div>
 
   {% if is_ready %}

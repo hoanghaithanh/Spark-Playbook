@@ -1,0 +1,132 @@
+"""Spark Playbook — realtime cluster monitoring dashboard routes (US-5.1-5.6,
+ADR D-B, D-E).
+
+Standalone page at `/dashboard` (ADR D-E) -- not embedded in a topic page or
+the cluster control panel. Two routes:
+
+  - GET  /dashboard         full page: top bar + all three views (client-side
+                             switched, ADR D-B) + the SSE listener element.
+                             Server-rendered inline with a fresh snapshot so
+                             the first paint isn't blank while waiting for
+                             the first SSE push (mirrors topics.py's own
+                             "server-rendered inline with fresh status"
+                             convention).
+  - GET  /dashboard/stream  the SSE feed (`text/event-stream`). One
+                             connection per client; subscribes to the shared
+                             `collector` singleton, which does the actual
+                             sampling (ADR D-B -- collection decoupled from
+                             delivery). Each pushed event is one HTML blob
+                             containing out-of-band (`hx-swap-oob`) fragments
+                             for the overview strip, job detail, and every
+                             node's detail block, so a single connection
+                             keeps all three views current regardless of
+                             which one is currently visible client-side.
+"""
+from __future__ import annotations
+
+import asyncio
+
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.templating import Jinja2Templates
+
+from app import config
+from app.lifecycle.manager import ClusterState, manager
+from app.monitoring.collector import collector
+from app.monitoring.model import Snapshot
+
+router = APIRouter()
+templates = Jinja2Templates(directory=str(config.WEB_TEMPLATES_DIR))
+# Templates reference dashboard color/interval constants directly
+# (dashboard/macros.html, dashboard/page.html) so the threshold color system
+# stays a single source of truth in config.py (ADR "Component / data
+# design").
+templates.env.globals["config"] = config
+
+# How often the SSE generator wakes up to check for a new snapshot / for the
+# client having disconnected, independent of the collector's own sampling
+# cadence -- keeps disconnect detection responsive even between collector
+# cycles.
+_STREAM_POLL_S = 1.0
+
+
+def _idle_snapshot() -> Snapshot:
+    return Snapshot(cluster_active=False, has_job=False)
+
+
+async def _current_snapshot() -> Snapshot:
+    """Best-effort snapshot for the initial full-page render -- a real
+    collector sample if the cluster is READY, otherwise the empty state.
+    Never raises: a transient Docker/Spark hiccup on first paint degrades to
+    the empty/idle rendering rather than a 500 (the SSE stream will recover
+    it on the next cycle)."""
+    if manager.state != ClusterState.READY:
+        return _idle_snapshot()
+    try:
+        return await collector.collect_once()
+    except Exception:
+        return collector.inactive_snapshot()
+
+
+@router.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page(request: Request) -> HTMLResponse:
+    snapshot = await _current_snapshot()
+    return templates.TemplateResponse(
+        request,
+        "dashboard/page.html",
+        {
+            "request": request,
+            "snapshot": snapshot,
+            "master_ui_url": config.MASTER_UI_URL,
+            "driver_ui_url": config.DRIVER_APP_UI_URL,
+        },
+    )
+
+
+def _render_oob_payload(request: Request, snapshot: Snapshot) -> str:
+    """One HTML blob: overview + job-detail + a container of every node's
+    detail block, each carrying `hx-swap-oob="true"` so the HTMX SSE
+    extension's single `sse-swap` listener element (which itself swaps
+    nothing, `hx-swap="none"`) fans the update out to all three views at
+    once (ADR D-B)."""
+    ctx = {"request": request, "snapshot": snapshot}
+    overview = templates.get_template("dashboard/fragments/overview_oob.html").render(ctx)
+    job_detail = templates.get_template("dashboard/fragments/job_detail_oob.html").render(ctx)
+    node_detail = templates.get_template("dashboard/fragments/node_detail_oob.html").render(ctx)
+    return overview + job_detail + node_detail
+
+
+@router.get("/dashboard/stream")
+async def dashboard_stream(request: Request) -> StreamingResponse:
+    async def event_generator():
+        queue = await collector.subscribe()
+        try:
+            while True:
+                # No explicit `await request.is_disconnected()` poll here --
+                # Starlette's StreamingResponse already races its own
+                # internal disconnect listener against this generator on the
+                # same ASGI receive channel, and cancels this task on a real
+                # client disconnect. A second consumer of that same channel
+                # here would contend with Starlette's own listener for
+                # messages and can starve both (found by actually running
+                # this against a live ASGI stack, not just code review) --
+                # relying on the `finally` below (invoked by the resulting
+                # CancelledError/GeneratorExit) is both correct and simpler.
+                collector.ensure_running()
+                try:
+                    snapshot = await asyncio.wait_for(queue.get(), timeout=_STREAM_POLL_S)
+                except asyncio.TimeoutError:
+                    continue
+                html = _render_oob_payload(request, snapshot)
+                # SSE payloads must not contain literal newlines per line --
+                # collapse the rendered HTML onto a single `data:` line.
+                data = html.replace("\r\n", " ").replace("\n", " ")
+                yield f"event: message\ndata: {data}\n\n"
+        finally:
+            collector.unsubscribe(queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
