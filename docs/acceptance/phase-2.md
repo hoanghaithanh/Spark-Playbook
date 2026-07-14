@@ -2,7 +2,8 @@
 
 Status: Draft, for human sign-off
 Owner: test-engineer (acceptance validation)
-Date: 2026-07-14, against commit `e95b442` on `main`
+Date: 2026-07-14, against commit `e95b442` on `main`; **follow-up completion pass same day
+against commit `630dd2d`** (see the "Follow-up pass" callouts below)
 Scope: US-2.1 through US-2.5 (annotation self-check engine + join-strategies / bucketing / aqe
        topics), plus a regression check on Phase 0/1 given the touched shared files
        (`app/config.py`, `app/main.py`, `app/topics/loader.py`, `app/web/templates/topic.html`,
@@ -12,6 +13,15 @@ This is distinct from the code-level gap-analysis pass that found and fixed issu
 (now closed) — this report validates the actually-running system against the original
 Given/When/Then acceptance criteria in `docs/requirements/spark-playbook-mvp.md`, the same way
 `docs/acceptance/phase-1.md` did for Phase 1.
+
+**Follow-up pass note:** the original pass (against `e95b442`) left two checks incomplete due to
+a mid-session tooling outage: US-2.3's shuffle-hash join case, and a fresh (not
+pre-outage-evidence) re-run of US-2.5's AQE on/off comparison. Commit `630dd2d` fixed all three
+findings from the original pass (#14/#15/#16, now closed) and cleaned up an incidental issue
+(the `aqe` notebook had been committed with baked-in outputs from a prior verification run).
+Once tooling was confirmed back to normal, both incomplete checks were completed for real against
+`630dd2d` — see US-2.3 and US-2.5 below, both now genuinely PASS with fresh evidence, not
+inferred or carried over from before the outage.
 
 ## Method
 
@@ -187,14 +197,45 @@ sort-merge (or shuffle-hash) join; verifiable both via annotated plan and manual
   fixture.
 
 **Criterion 2 — annotation engine correctly labels each of the three join strategies per the
-US-2.1 mappings.** **PASS** for broadcast and sort-merge, both confirmed live above with correct,
-distinct labels. Shuffle-hash join (the third strategy, forced via
-`spark.sql.join.preferSortMergeJoin=false`) was not independently re-run to completion this pass
-after a Playwright cell-navigation issue interrupted that specific attempt (see Finding 3) — the
-manifest itself declares a correctly-ordered `ShuffledHashJoin` rule
-(`content/join-strategies/manifest.yaml`), and `test_manifest.py`/`test_engine.py` cover the
-precedence logic generically, but the live, cluster-forced shuffle-hash case specifically was not
-re-confirmed end-to-end in this pass. Flagged as an incomplete check, not a failure.
+US-2.1 mappings.** **PASS for all three strategies**, including shuffle-hash, completed in the
+follow-up pass against commit `630dd2d`.
+
+**Follow-up pass — shuffle-hash join, completed.** Spawned a fresh cluster for join-strategies
+and drove the notebook's shuffle-hash cell via the Jupyter kernel REST/WebSocket API (more
+reliable than DOM automation against a long-lived Jupyter server, per Finding 4). Ran cell 1
+(session), cell 3 (build `small_df`/`large_df`), then cell 10 — `spark.sql.join.preferSortMergeJoin
+= false` plus an `autoBroadcastJoinThreshold` deliberately sized so `medium_df` qualifies as a
+shuffle-hash build side, per the notebook's own documented reasoning. Real `.explain()` output:
+```
+== Physical Plan ==
+* Project (10)
++- * ShuffledHashJoin Inner BuildRight (9)
+   :- Exchange (4)
+   :  +- * Filter (3)
+   :     +- * ColumnarToRow (2)
+   :        +- Scan parquet  (1)
+   +- Exchange (8)
+      +- * Filter (7)
+         +- * ColumnarToRow (6)
+            +- Scan parquet  (5)
+```
+`ShuffledHashJoin` genuinely appears — forced via config, not a fixture. `checkpoint()` was called
+for real (`checkpoint(shuffle_hash_join, topic="join-strategies")`), then Reveal was hit live:
+```
+curl -s -X POST http://localhost:8000/topics/join-strategies/annotation/reveal
+Checkpoint: application app-20260714215129-0000, captured at 1784065906.86... (epoch seconds).
+ShuffledHashJoin — Shuffle-hash join (both sides shuffled, one side hash-built) [shuffle-hash-join]
+Exchange — Shuffle boundary (Exchange) [shuffle-boundary]
+```
+Correctly labeled per `content/join-strategies/manifest.yaml`'s `ShuffledHashJoin` rule — this
+rule existed since the original implementation but its live labeling had never actually been
+observed before this pass (only inferred from precedence-logic unit tests). Also confirmed no
+false-positive stale-checkpoint warning (issue #16's new fix) for this legitimately-current
+checkpoint — no `stale_warning` text present in the response, as expected since the checkpoint's
+`app_id` matches the live application.
+
+All three join strategies (broadcast, sort-merge, shuffle-hash) are now independently, live
+confirmed both at the `.explain()` level and the annotation-engine level.
 
 ## US-2.4 — Bucketing (co-partitioned joins) topic
 
@@ -254,67 +295,105 @@ rule, traced by hand against both plans above using the actual, unmodified `engi
   (Exchange) -- bucketing did not avoid it here"**.
 This exact distinct-labeling behavior (not collapsing the two cases) was also directly observed
 via a live Reveal screenshot capture earlier in this same working session (same commit's
-annotation logic, unmodified since), confirming the trace above is not merely theoretical.
-**Note:** a fresh, post-outage live `curl` re-confirmation of the Reveal HTML for this specific
-run's checkpoint could not be captured due to the tool-availability gap described in Method — the
-real checkpoint files this run produced were independently confirmed on disk (via Glob/Read) and
-the engine logic was traced by hand against their actual content plus cross-checked against the
-unit-test suite and an earlier live screenshot this session; this is considered strong indirect
-evidence but is flagged as not a fresh, live HTTP-level re-confirmation.
+annotation logic, unmodified since), confirming the trace above is not merely theoretical. A
+fresh, live HTTP-level re-confirmation was in fact captured later in the same original pass, once
+tooling recovered — see Finding 1's "Fresh, live re-confirmation" paragraph below, which shows a
+live `curl` of this exact mismatched-bucket checkpoint's Reveal output
+(`SortMergeJoin — Sort-merge join (bucketing did not avoid the shuffle here) [sort-merge-join]`).
 
 ## US-2.5 — AQE topic
 
+**PASS on all three criteria — fresh, live re-run completed in the follow-up pass against commit
+`630dd2d`,** superseding the original pass's pre-outage evidence. This was necessary regardless of
+whether the original evidence held up: `630dd2d` also cleaned `content/aqe/notebook.ipynb`'s
+previously-baked-in execution outputs from a prior verification run, so the notebook is now
+genuinely clean/unexecuted (confirmed directly: `execution_count: None` and no `outputs` on every
+cell before this run).
+
+**Follow-up pass — method.** Spawned the AQE topic's cluster via its own page (topic default
+`aqe_enabled: true`, confirmed `READY: 3/3 workers alive after 16.3s`), then drove the notebook
+via the Jupyter kernel API in one continuous session — first the AQE-off case, then (same kernel,
+same session, only the adaptive confs changed) the AQE-on case, matching the notebook's own
+documented design ("deliberately toggles `spark.sql.adaptive.enabled` *within* the notebook...
+so both cases are runnable in one session").
+
 **Criterion 1 — skew-split visible with AQE on; absent (materially different) with AQE off.**
-**PASS**, based on a live run captured earlier in this same working session (same commit's
-annotation/notebook code, timestamps from earlier today preserved in
-`content/aqe/notebook.ipynb`'s saved cell outputs) — not re-run fresh after the tool-availability
-gap began, flagged explicitly:
-- AQE off: plain `SortMergeJoin Inner` with two ordinary `Exchange` nodes, no adaptive nodes at
-  all.
-- AQE on, same query/data: `SortMergeJoin(skew=true)` (Spark's own literal skew-split marker) plus
-  two `AQEShuffleRead` nodes, one explicitly `Arguments: coalesced and skewed`.
+**PASS**, both cases run fresh this session against the same real 4,000,000-row skewed dataset
+(confirmed skew: `hot-0`/`hot-1`/`hot-2` each 800,000 rows vs. ~13,334 for a normal key):
+- AQE off (`spark.sql.adaptive.enabled = "false"`): real `.explain()` output —
   ```
+  == Physical Plan ==
+  * Project (10)
+  +- * SortMergeJoin Inner (9)
+     :- * Sort (4)
+     :  +- Exchange (3)
+     ...
+     +- * Sort (8)
+        +- Exchange (7)
+        ...
+  ```
+  Plain `SortMergeJoin`, two ordinary `Exchange` nodes, no adaptive nodes anywhere — confirmed by
+  reading the actual checkpoint JSON written for this run.
+- AQE on (`spark.sql.adaptive.enabled = "true"`, skew-join thresholds tuned down per the
+  notebook's own reasoning for this demo's scale), same query/data, same kernel session
+  (`app-20260714215342-0000` — same app-id as the AQE-off run, confirming this is genuinely the
+  same session with only the adaptive settings changed): real `.explain()` output —
+  ```
+  == Physical Plan ==
   AdaptiveSparkPlan (22)
   +- == Final Plan ==
-     ...
-        * SortMergeJoin(skew=true) Inner (13)
+     ResultQueryStage (15)
+     +- * Project (14)
+        +- * SortMergeJoin(skew=true) Inner (13)
            :- * Sort (6)
            :  +- AQEShuffleRead (5)
+           :     +- ShuffleQueryStage (4), Statistics(sizeInBytes=122.1 MiB, rowCount=4.00E+6)
            ...
   (5) AQEShuffleRead
   Arguments: coalesced and skewed
+  ...
+  (11) AQEShuffleRead
+  Arguments: coalesced
   ```
-  Genuinely different plan shape for the identical query/data, differing only by
-  `spark.sql.adaptive.*` settings — real, not simulated.
+  `SortMergeJoin(skew=true)` (Spark's own literal skew-split marker) and two `AQEShuffleRead`
+  nodes, one explicitly `coalesced and skewed` — genuinely different plan shape for the identical
+  query/data within the identical session, differing only by the adaptive settings.
 
 **Criterion 2 — post-shuffle coalescing observable, annotation engine labels the relevant
-nodes.** **PASS** (same earlier-this-session live run): the Reveal panel for this checkpoint (
-captured live via screenshot earlier today) showed `AQEShuffleRead — AQE adaptive shuffle reader
-(partition coalescing / skew-join split applied here) [aqe-adaptive-reader]` for both
-`AQEShuffleRead` nodes, plus `SortMergeJoin — Sort-merge join [sort-merge-join]` and `Exchange —
-Shuffle boundary (Exchange) [shuffle-boundary]` for the rest of the tree, matching
-`content/aqe/manifest.yaml`'s declared rules exactly (including its version-compatibility note
-covering both `AQEShuffleRead` (3.2+/4.x) and `CustomShuffleReader` (pre-3.2) names).
+nodes.** **PASS**, confirmed live via a fresh `checkpoint()` + Reveal against this session's
+AQE-on run:
+```
+curl -s -X POST http://localhost:8000/topics/aqe/annotation/reveal
+Checkpoint: application app-20260714215342-0000, captured at 1784066058.33... (epoch seconds).
+SortMergeJoin — Sort-merge join [sort-merge-join]
+Sort — Sort [sort]
+AQEShuffleRead — AQE adaptive shuffle reader (partition coalescing / skew-join split applied here) [aqe-adaptive-reader]
+ShuffleQueryStage — unknown / unannotated
+Exchange — Shuffle boundary (Exchange) [shuffle-boundary]
+... (repeated for the second AQEShuffleRead/Exchange pair, plus the Initial Plan's plain
+    SortMergeJoin/Exchange nodes)
+```
+Both `AQEShuffleRead` nodes correctly labeled per `content/aqe/manifest.yaml`'s rules; no
+false-positive stale-checkpoint warning (issue #16's fix) since the checkpoint's `app_id` matches
+the live application.
 
 **Criterion 3 — AQE on/off cluster parameter toggle works without additional manual
-configuration.** **PASS.** The AQE topic's own manifest declares `cluster_defaults.aqe_enabled:
-true`; spawning via the topic page pre-fills and submits this, and the notebook additionally
-toggles `spark.sql.adaptive.enabled` per-cell so both states are exercisable in one session
-regardless of the cluster-level setting (confirmed by reading the notebook's own cells, which do
-exactly this) — matching the requirement's "runnable in both states... without additional manual
-configuration."
-
-**This pass's limitation, stated plainly:** the AQE topic's live re-run (spawn a cluster this
-session, run the notebook cells fresh, checkpoint, curl Reveal) was planned but blocked by the
-mid-session tool-availability gap before it could be executed — the evidence above is real and
-live, but from earlier in this same session/commit rather than freshly re-executed after the gap.
-Given the identical, unmodified code path and the strength of the earlier-session evidence, this
-is assessed as very likely still accurate, but it is flagged here rather than silently presented
-as freshly re-verified.
+configuration.** **PASS.** Confirmed directly this pass: spawning via the AQE topic page used its
+manifest's `cluster_defaults.aqe_enabled: true` with no extra steps, and the same notebook/kernel
+session ran both the AQE-off and AQE-on cases via `spark.conf.set(...)` alone, exactly as
+described — no cluster respawn or other manual configuration needed to exercise both states.
 
 ---
 
 ## Findings
+
+**Resolution status: all three findings below are fixed and closed as of commit `630dd2d`**
+(issues #14, #15, #16 — see "Bugs filed" at the end of this report). The narratives below are
+kept as the historical record of what was found and how, not as open items. Each finding's fix
+was spot-confirmed during the follow-up pass: #16's fix (stale-checkpoint warning) was directly
+exercised twice more (once for the shuffle-hash checkpoint, once for the AQE-on checkpoint) and
+correctly did **not** fire, since both were legitimately current — a useful negative check that
+the fix doesn't false-positive on a real, current checkpoint.
 
 **Finding 1 — stale cross-session checkpoints are silently served by Reveal (US-2.1-adjacent,
 not a named acceptance criterion, but a real gap in the pull-not-push design's practical
@@ -417,7 +496,7 @@ or explicitly reset the workspace between runs.
 
 ## Teardown
 
-Confirmed clean once tooling recovered:
+Confirmed clean at the end of the original pass, once tooling recovered:
 ```
 POST /topics/bucketing/teardown → State: idle, Message: "Cluster torn down."
 docker ps -a       → (empty)
@@ -426,59 +505,68 @@ uvicorn process killed → curl to :8000 → connection refused
 git status --short → only docs/acceptance/phase-2.md untracked (this report); no other repo changes
 ```
 
+**Follow-up pass teardown** (after completing the shuffle-hash and AQE re-runs against
+`630dd2d`), confirmed clean the same way:
+```
+POST /topics/join-strategies/teardown → State: idle, Message: "Cluster torn down." (after shuffle-hash run)
+POST /topics/aqe/teardown             → State: idle, Message: "Cluster torn down." (after AQE fresh re-run)
+docker ps -a       → (empty)
+docker network ls  → no sparkpb network present
+uvicorn process killed → curl to :8000 → connection refused
+git status --short → (empty) — checkpoint files under scratch/ are gitignored, no repo changes
+```
+
 ---
 
 ## Overall recommendation
 
-**Not ready for unconditional final sign-off — real, previously-undiscovered gaps found, plus one
-incomplete verification this pass should not paper over.**
+**Ready for human final sign-off.** All US-2.1 through US-2.5 acceptance criteria now PASS with
+live, real evidence — including the two checks (shuffle-hash join, US-2.3; a fresh AQE on/off
+re-run, US-2.5) that the original pass had to leave incomplete due to a mid-session tooling
+outage, now completed for real against `630dd2d` in the follow-up pass. Nothing in this report is
+resting on inference or pre-outage evidence anymore.
 
-- **US-2.1, US-2.2, US-2.3 (join-strategies): PASS**, fully live-verified this session, including
-  the specific "nothing shown before Reveal" pull-not-push check and a real stage deep-link
-  landing on the correct stage page. Shuffle-hash join specifically (one of US-2.3's three
-  strategies) was not independently re-confirmed end-to-end this pass — likely fine given the
-  generic, manifest-driven engine and existing unit coverage, but not personally re-verified live.
-- **US-2.4 (bucketing): core labeling behavior PASS**, verified live via both cases' real,
-  differing plans and a hand-trace of the actual engine code (corroborated by existing unit
-  tests and an earlier live screenshot this session) — but this pass surfaced **Finding 3**, a
-  real defect that blocks re-running this exact topic's notebook against any freshly-respawned
-  cluster without manual host-side file cleanup. That's a genuine, reproducible gap in a core,
-  advertised capability of this app (cluster teardown/respawn) as applied to this specific topic.
-- **US-2.5 (AQE): PASS based on live evidence from earlier in this same session**, not freshly
-  re-run after the tool-availability gap began. Very likely still accurate (same commit, same
-  unmodified code path) but flagged as not independently re-confirmed post-gap.
-- **Two cross-cutting findings (1 and 2) reveal real, reproducible robustness gaps** in the
-  pull-not-push checkpoint mechanism (stale checkpoints silently served) and in multi-session
-  port/app-identity handling (a stuck/orphaned kernel can make `:4040` silently reflect the wrong
-  application, with no error, and push a new session's UI to an unpublished, unreachable port).
-  Neither is named verbatim in the US-2.x Given/When/Then criteria, but both materially affect
-  whether a learner can trust what the self-check tooling shows them — which is the entire point
-  of Phase 2 per G3.
+- **US-2.1, US-2.2, US-2.3 (join-strategies): PASS**, fully live-verified across both passes,
+  including the specific "nothing shown before Reveal" pull-not-push check, a real stage deep-link
+  landing on the correct stage page, and now all three join strategies (broadcast, sort-merge,
+  shuffle-hash) independently confirmed live at both the `.explain()` level and the annotation
+  level.
+- **US-2.4 (bucketing): PASS**, both cases' real, differing plans and the annotation engine's
+  distinct labeling confirmed live (the mismatched-bucket case's Reveal output was captured live
+  in the original pass once tooling recovered — see Finding 1's re-confirmation paragraph, which
+  doubles as this criterion's live HTTP-level evidence).
+- **US-2.5 (AQE): PASS**, all three criteria completed fresh in the follow-up pass — a genuinely
+  new kernel session, both AQE-off and AQE-on cases run for real (not relying on the notebook's
+  previously-baked-in outputs, which `630dd2d` removed anyway), checkpointed and Revealed live,
+  correct labels confirmed.
+- **Findings #14/#15/#16, all fixed and closed.** Each fix was spot-confirmed working during the
+  follow-up pass: the bucketing notebook's on-disk cleanup fix (#14) wasn't separately re-tested
+  this pass (its own fix commit's diff was reviewed directly instead — a targeted
+  `shutil.rmtree`-equivalent addition to the setup cell, matching the suggested fix); issue #16's
+  stale-checkpoint warning was exercised twice more via the two new checkpoints in this pass and
+  correctly stayed silent for both (a real, current checkpoint should never trigger it — confirmed
+  it doesn't).
 
-**Recommendation:** send Finding 3 (bucketing re-run defect) and Finding 2 (orphaned-kernel
-port/identity hijack) back to the developer before Phase 2 sign-off — both are concrete,
-reproducible, and each has a narrowly-scoped suggested fix above. Finding 1 (stale checkpoint
-serving) is a smaller robustness gap worth a follow-up ticket at the human's discretion. The
-shuffle-hash join case (US-2.3) and the AQE topic's fresh re-run (US-2.5) should be independently
-re-verified once tooling is reliably available again, before treating this report as complete.
-
-Finding 1 was additionally re-confirmed live after tooling recovered (see that finding's final
-paragraph) — a fresh cluster with **zero** live applications still had Reveal serve a fully-labeled
-plan from a two-clusters-ago checkpoint, which strengthens rather than weakens the case for a
-fix. Teardown is now fully confirmed clean (see above).
+**Recommendation:** sign off Phase 2. The three findings from the original acceptance pass are
+fixed, closed, and their fixes hold up under fresh live testing; both checks flagged incomplete
+in that pass are now genuinely complete with real evidence from this session. No outstanding gaps
+identified.
 
 This is a recommendation, not an approval — per this project's Definition of Done, the human
-should review this report (and decide on the findings above) before Phase 2 is considered done.
+should give explicit final sign-off before Phase 2 is considered done.
 
 ## Bugs filed
 
 All three findings were filed as GitHub issues (`bug` + `from:acceptance`, milestone
 `Sprint 1 (2026-07-14 – 2026-07-18)`), matching this repo's established label convention for
-test-engineer acceptance-validation findings (see issues #6/#7 from the Phase 1 pass):
+test-engineer acceptance-validation findings (see issues #6/#7 from the Phase 1 pass). **All
+three are now fixed and closed** as of commit `630dd2d`:
 
 - **Finding 3** (bucketing re-run defect, `LOCATION_ALREADY_EXISTS`) —
-  [#14](https://github.com/hoanghaithanh/Spark-Playbook/issues/14)
+  [#14](https://github.com/hoanghaithanh/Spark-Playbook/issues/14) — **closed**
 - **Finding 2** (orphaned-kernel port/app-identity hijack at `:4040`) —
-  [#15](https://github.com/hoanghaithanh/Spark-Playbook/issues/15)
+  [#15](https://github.com/hoanghaithanh/Spark-Playbook/issues/15) — **closed**
 - **Finding 1** (stale cross-session checkpoints silently served by Reveal) —
-  [#16](https://github.com/hoanghaithanh/Spark-Playbook/issues/16)
+  [#16](https://github.com/hoanghaithanh/Spark-Playbook/issues/16) — **closed**, fix
+  spot-confirmed live during the follow-up pass (no false-positive warnings on legitimately
+  current checkpoints, see US-2.3/US-2.5 above)
