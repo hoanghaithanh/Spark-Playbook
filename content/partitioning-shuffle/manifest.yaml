@@ -1,0 +1,42 @@
+# Spark Playbook — topic manifest (PLAN.md §3 schema).
+#
+# The `annotation:` section is a minimal placeholder for Phase 1: the
+# annotation engine itself (plan_parser/engine, Reveal UI) is Phase 2 scope.
+# It is declared here anyway so the join-strategies/bucketing/aqe topics that
+# reuse this schema in Phase 2 have a working example, and so nothing about
+# the schema needs to change when that engine is built.
+
+id: partitioning-shuffle
+title: "Partitioning & Shuffle Mechanics"
+order: 1
+content: concept.md
+notebook: notebook.ipynb
+
+cluster_defaults:
+  worker_count: 3
+  worker_cores: 2
+  worker_memory_gb: 4
+  shuffle_partitions: 200
+  aqe_enabled: false
+requires_kafka: false
+
+annotation:
+  plan_nodes:
+    - match: "Exchange"
+      concept: shuffle-boundary
+      label: "Shuffle boundary (Exchange) — data is repartitioned across the cluster"
+    - match: "HashAggregate"
+      concept: partial-then-final-aggregate
+      label: "Hash aggregate (partial pre-shuffle, final post-shuffle)"
+    - match: "Sort"
+      concept: sort
+      label: "Sort (often precedes a merge-based operator)"
+
+  stage_metrics:
+    - key: shuffleReadBytes
+      spotlight: true
+    - key: shuffleWriteBytes
+      spotlight: true
+    - key: numTasks
+    - key: memoryBytesSpilled
+    - key: diskBytesSpilled

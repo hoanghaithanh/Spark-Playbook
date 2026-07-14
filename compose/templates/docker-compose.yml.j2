@@ -1,0 +1,136 @@
+{#
+  Spark Playbook — Phase 0 cluster compose template (PLAN.md §2, §4, §6).
+
+  Rendered by compose/cli.py into compose/rendered/docker-compose.yml.
+
+  NOTE on relative bind-mount paths: docker compose resolves relative volume
+  paths against the *compose file's own directory* (compose/rendered/), not the
+  invoker's cwd. Two gotchas found and fixed by running this for real:
+    - repo bind mount: since this file always renders to compose/rendered/, the
+      repo root is two levels up (../../), not one (../) — an earlier ../ mount
+      only exposed compose/ inside /workspace.
+    - spark-defaults.conf mount: it renders alongside this file in the SAME
+      compose/rendered/ directory, so the source is ./spark-defaults.conf, not
+      ./rendered/spark-defaults.conf (that path resolved to a nonexistent
+      compose/rendered/rendered/... and silently mounted an empty directory,
+      which is why spark.master from the conf was never applied and
+      spark-submit fell back to local[*]).
+
+  Template variables (defaults live in compose/cli.py, matching PLAN.md §2's table):
+    image_name          - built image tag (compose/build.sh's IMAGE_NAME)
+    worker_count         - number of spark-worker-N services (default 3, range 1-5)
+    worker_cores          - SPARK_WORKER_CORES per worker (default 2, range 1-4)
+    worker_memory_gb      - SPARK_WORKER_MEMORY per worker, in GB (default 4, range 1-8)
+    driver_memory_gb      - spark.driver.memory, in GB (default 2, fixed) — also used to
+                             cap the driver container so it fits the resource budget
+    repo_root_container    - absolute path to bind-mount the repo into containers (/workspace)
+
+  No Kafka service (Phase 3, out of scope here). No `include_kafka` conditional yet.
+
+  Network: dedicated bridge network so `spark://spark-master:7077` resolves by
+  container DNS (PLAN.md §1). Compose's default network naming already gives us
+  `<project>_default`; we still declare it explicitly for a stable, readable name.
+#}
+name: sparkpb
+
+networks:
+  sparkpb-net:
+    driver: bridge
+
+services:
+  spark-master:
+    image: {{ image_name }}
+    container_name: spark-master
+    hostname: spark-master
+    command: >-
+      /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+      --host spark-master --port 7077 --webui-port 8080
+    ports:
+      - "8080:8080"   # master web UI + /json/ readiness endpoint
+      - "6066:6066"   # standalone REST submission server (unused; client mode only)
+      # NOTE: port 7077 (the cluster port) is intentionally NOT published to the
+      # host. Only in-network containers dial spark://spark-master:7077, resolved
+      # via Docker embedded DNS (PLAN.md §1) — the host never needs to reach it
+      # directly. Leaving it unpublished also avoids colliding with any other
+      # unrelated Spark stack that may already have host port 7077 bound.
+    volumes:
+      - ../../:/workspace
+      - ./spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+    networks:
+      - sparkpb-net
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1g
+    restart: "no"
+
+{% for i in range(1, worker_count + 1) %}
+  spark-worker-{{ i }}:
+    image: {{ image_name }}
+    container_name: spark-worker-{{ i }}
+    hostname: spark-worker-{{ i }}
+    command: >-
+      /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker
+      spark://spark-master:7077 --webui-port 8081
+    environment:
+      # Official apache/spark standalone-worker resource knobs (read by
+      # org.apache.spark.deploy.worker.Worker / conf/spark-env.sh conventions):
+      SPARK_WORKER_CORES: "{{ worker_cores }}"
+      SPARK_WORKER_MEMORY: "{{ worker_memory_gb }}g"
+    depends_on:
+      - spark-master
+    ports:
+      - "{{ 8081 + i - 1 }}:8081"   # worker UI (spark-worker-1 -> 8081, -2 -> 8082, ...)
+    volumes:
+      - ../../:/workspace
+      - ./spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+    networks:
+      - sparkpb-net
+    deploy:
+      resources:
+        limits:
+          cpus: "{{ worker_cores }}"
+          memory: {{ worker_memory_gb }}g
+    restart: "no"
+{% endfor %}
+
+  spark-driver:
+    image: {{ image_name }}
+    container_name: spark-driver
+    hostname: spark-driver
+    # PLAN.md §4/US-1.3 fix, found by actually running a notebook cell: unlike
+    # `spark-submit`/`pyspark` (which set PYTHONPATH via their own wrapper
+    # scripts), a plain JupyterLab kernel process does not get PYTHONPATH for
+    # free, so `import pyspark` fails from a notebook cell even though
+    # spark-submit-based jobs (compose/smoke_test.py) work fine. Export it
+    # (py4j's zip filename resolved via glob, not hardcoded, so it survives a
+    # Spark version bump in Dockerfile.spark) before launching Jupyter.
+    command: >-
+      bash -c "export PYTHONPATH=/opt/spark/python:$(ls /opt/spark/python/lib/py4j-*-src.zip):$$PYTHONPATH &&
+      /usr/local/bin/jupyter lab
+      --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+      --ServerApp.token='' --ServerApp.password=''
+      --ServerApp.allow_origin='*'
+      --notebook-dir=/workspace"
+    depends_on:
+      - spark-master
+{% for i in range(1, worker_count + 1) %}
+      - spark-worker-{{ i }}
+{% endfor %}
+    ports:
+      - "8888:8888"   # JupyterLab
+      - "4040:4040"   # driver application UI + /api/v1/... REST
+      - "7078:7078"   # spark.driver.port (pinned, PLAN.md §6/R1)
+      - "7079:7079"   # spark.blockManager.port (pinned, PLAN.md §6/R1)
+    volumes:
+      - ../../:/workspace
+      - ./spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
+    networks:
+      - sparkpb-net
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: {{ driver_memory_gb }}g
+    restart: "no"

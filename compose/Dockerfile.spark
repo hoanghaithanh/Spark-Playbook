@@ -1,0 +1,42 @@
+# Spark Playbook — Phase 0 cluster image
+#
+# One image, reused for master / worker / driver roles (PLAN.md D2). The role is
+# selected purely by the container `command` in docker-compose.yml.j2 — this image
+# adds nothing role-specific.
+#
+# Phase 0 scope only: JupyterLab + PyArrow so notebooks can open and run PySpark.
+# Deliberately NOT included yet (later phases, per PLAN.md §4/§5):
+#   - Kafka SQL connector jars (Phase 3)
+#   - numpy/faker for tools/datagen (Phase 0 backlog item, but a separate pass)
+#   - driver/playbook helper package (mounted as a volume later, not baked into the image)
+#
+# Base tag per PLAN.md D2/D3: apache/spark 4.0.3, Scala 2.13, Java 17, Python 3(.11).
+#
+# DEVIATION FROM PLAN.md's literal tag string: PLAN.md's D2 section names
+# `apache/spark:4.0.3-scala2.13-java17-python3` as the example tag, but that exact
+# string is not a published tag (confirmed via the Docker Hub tags API for
+# apache/spark at build time — `4.0.3-scala2.13-java17-python3` 404s). The real,
+# published 4.0.3 tag with this variant combination is
+# `4.0.3-scala2.13-java17-python3-ubuntu` (Docker Hub also lists an `-r` sibling
+# that adds R, which we don't need). Verified to resolve via `docker build` below.
+FROM apache/spark:4.0.3-scala2.13-java17-python3-ubuntu
+
+USER root
+
+# The official image already provides JAVA_HOME, SPARK_HOME, and a `python3` with
+# PySpark's own dependencies. We only need to layer JupyterLab + PyArrow on top.
+RUN pip install --no-cache-dir \
+        jupyterlab==4.2.5 \
+        pyarrow==17.0.0 \
+        pandas==2.2.3
+
+# Shared scratch space for annotation dumps (mounted as a volume in compose; the
+# directory is created here so it exists even before the first bind mount).
+RUN mkdir -p /shared && chmod 777 /shared
+
+WORKDIR /opt/spark/work-dir
+
+# No ENTRYPOINT override: the base apache/spark image's entrypoint already
+# dispatches on the first CLI arg (e.g. `master`, `worker`, `driver`, or an
+# arbitrary shell command like `jupyter lab ...`). Each compose service supplies
+# its own `command:`; this Dockerfile stays role-agnostic per PLAN.md D2.

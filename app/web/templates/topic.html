@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ topic.title }} — Spark Playbook{% endblock %}
+{% block content %}
+<h1>{{ topic.title }}</h1>
+
+<section class="concept">
+  {{ concept_html | safe }}
+</section>
+
+<section class="notebook-link">
+  <h2>Notebook</h2>
+  <p>
+    <code>content/{{ topic.id }}/{{ topic.notebook_path.name }}</code> —
+    opens inside the embedded JupyterLab below once a cluster is READY.
+  </p>
+</section>
+
+<section class="cluster-panel">
+  <h2>Cluster control</h2>
+  <div id="cluster-panel"
+       hx-get="/topics/{{ topic.id }}/panel"
+       hx-trigger="load"
+       hx-swap="outerHTML">
+    {% include "fragments/cluster_panel.html" %}
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,74 @@
+<div id="cluster-panel">
+  <form id="spawn-form"
+        hx-post="/topics/{{ topic.id }}/spawn"
+        hx-target="#cluster-panel"
+        hx-swap="outerHTML"
+        hx-indicator="#spawn-indicator"
+        hx-disabled-elt="#spawn-btn, #teardown-btn">
+    <fieldset>
+      <legend>Cluster parameters</legend>
+      <label>
+        Worker count ({{ worker_count_range[0] }}-{{ worker_count_range[1] }})
+        <input type="number" name="worker_count" min="{{ worker_count_range[0] }}"
+               max="{{ worker_count_range[1] }}" value="{{ defaults.worker_count }}" required />
+      </label>
+      <label>
+        Worker cores ({{ worker_cores_range[0] }}-{{ worker_cores_range[1] }})
+        <input type="number" name="worker_cores" min="{{ worker_cores_range[0] }}"
+               max="{{ worker_cores_range[1] }}" value="{{ defaults.worker_cores }}" required />
+      </label>
+      <label>
+        Worker memory GB ({{ worker_memory_gb_range[0] }}-{{ worker_memory_gb_range[1] }})
+        <input type="number" name="worker_memory_gb" min="{{ worker_memory_gb_range[0] }}"
+               max="{{ worker_memory_gb_range[1] }}" value="{{ defaults.worker_memory_gb }}" required />
+      </label>
+      <label>
+        Shuffle partitions
+        <input type="number" name="shuffle_partitions" min="1" value="{{ defaults.shuffle_partitions }}" required />
+      </label>
+      <label class="checkbox">
+        <input type="checkbox" name="aqe_enabled" value="true" {% if defaults.aqe_enabled %}checked{% endif %} />
+        AQE enabled
+      </label>
+    </fieldset>
+    <div class="actions">
+      <button id="spawn-btn" type="submit">Spawn cluster</button>
+      <span id="spawn-indicator" class="htmx-indicator">Spawning... this can take up to 90 seconds.</span>
+    </div>
+  </form>
+
+  <form hx-post="/topics/{{ topic.id }}/teardown" hx-target="#cluster-panel" hx-swap="outerHTML">
+    <button id="teardown-btn" type="submit">Tear down cluster</button>
+  </form>
+
+  <div class="cluster-status status-{{ status.state.value }}">
+    <p><strong>State:</strong> {{ status.state.value }}</p>
+    <p><strong>Message:</strong> {{ status.message }}</p>
+    {% if status.error %}
+      <p class="error"><strong>Error:</strong> {{ status.error }}</p>
+    {% endif %}
+    {% if status.alive_workers is not none and status.params %}
+      <p><strong>Workers alive:</strong> {{ status.alive_workers }}/{{ status.params.worker_count }}</p>
+    {% endif %}
+    <p>
+      Master UI: <a href="{{ master_ui_url }}" target="_blank" rel="noopener">{{ master_ui_url }}</a>
+    </p>
+  </div>
+
+  {% if is_ready %}
+  <div class="jupyter-embed">
+    <h2>JupyterLab — {{ topic.title }}</h2>
+    <iframe
+      title="JupyterLab"
+      src="{{ jupyter_url }}/lab/tree/{{ topic.notebook_relpath }}?spawn={{ status.spawn_id }}"
+      width="100%"
+      height="700"
+      style="border:1px solid #ccc;">
+    </iframe>
+  </div>
+  {% else %}
+  <p class="jupyter-placeholder">
+    Spawn a cluster to embed JupyterLab here, connected to <code>{{ topic.notebook_relpath }}</code>.
+  </p>
+  {% endif %}
+</div>

@@ -1,0 +1,88 @@
+body {
+  font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+  margin: 0;
+  color: #1a1a1a;
+  background: #fafafa;
+}
+.site-header {
+  background: #1e293b;
+  color: white;
+  padding: 0.75rem 1.5rem;
+}
+.site-header .brand {
+  color: white;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 1.1rem;
+}
+.content {
+  max-width: 900px;
+  margin: 2rem auto;
+  padding: 0 1.5rem;
+}
+.concept {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 1.25rem 1.5rem;
+}
+.concept pre {
+  background: #f1f5f9;
+  padding: 0.75rem;
+  overflow-x: auto;
+}
+fieldset {
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+fieldset label {
+  display: block;
+  margin: 0.5rem 0;
+}
+fieldset input[type="number"] {
+  width: 6rem;
+  margin-left: 0.5rem;
+}
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.htmx-indicator {
+  display: none;
+  color: #b45309;
+}
+.htmx-request .htmx-indicator {
+  display: inline;
+}
+.htmx-request#spawn-form .htmx-indicator {
+  display: inline;
+}
+.cluster-status {
+  border-left: 4px solid #94a3b8;
+  padding: 0.5rem 1rem;
+  margin: 1rem 0;
+  background: white;
+}
+.status-ready { border-left-color: #16a34a; }
+.status-failed { border-left-color: #dc2626; }
+.status-waiting_ready, .status-starting, .status-rendering, .status-tearing_down {
+  border-left-color: #d97706;
+}
+.cluster-status .error { color: #dc2626; }
+.jupyter-embed iframe {
+  display: block;
+}
+button {
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  border: 1px solid #334155;
+  background: #334155;
+  color: white;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

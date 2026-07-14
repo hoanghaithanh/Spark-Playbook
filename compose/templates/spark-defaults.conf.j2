@@ -1,0 +1,33 @@
+{#
+  Spark Playbook — spark-defaults.conf template (PLAN.md §2, §6/R1).
+
+  Mounted read-only into master, every worker, and the driver at
+  /opt/spark/conf/spark-defaults.conf. Its purpose is US-0.5: a bare
+  `SparkSession.builder.getOrCreate()` in a notebook needs no connection
+  boilerplate — master URL, shuffle partitions, AQE, and driver networking are
+  all pre-baked here.
+
+  Resource knobs (SPARK_WORKER_CORES / SPARK_WORKER_MEMORY) are NOT set here —
+  those are standalone-worker environment variables read by
+  org.apache.spark.deploy.worker.Worker, and are set as `environment:` entries
+  on each spark-worker-N service in docker-compose.yml.j2 instead, per the
+  official apache/spark image's expected mechanism for worker resource limits.
+#}
+spark.master                          spark://spark-master:7077
+
+# Query execution defaults (PLAN.md §2 template variables table)
+spark.sql.shuffle.partitions          {{ shuffle_partitions }}
+spark.sql.adaptive.enabled            {{ "true" if aqe_enabled else "false" }}
+
+# Driver networking — client-mode driver runs *inside* the sparkpb-net bridge
+# network (PLAN.md §6/R1), so executors reach it by container DNS, never a host
+# NAT boundary. Ports are pinned (not ephemeral) so they are deterministic.
+spark.driver.host                     spark-driver
+spark.driver.bindAddress              0.0.0.0
+spark.driver.port                     7078
+spark.blockManager.port               7079
+spark.driver.memory                   {{ driver_memory_gb }}g
+
+# Keep the driver's application UI on a fixed, predictable port (PLAN.md §6/R2)
+# rather than letting Spark increment to 4041+ if 4040 were ever already bound.
+spark.ui.port                         4040

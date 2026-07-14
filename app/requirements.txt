@@ -1,0 +1,18 @@
+# Spark Playbook — FastAPI app dependencies (Phase 1, PLAN.md §4).
+#
+# Install with:
+#   pip install -r app/requirements.txt
+#
+# Note (D1 deviation — see app/README.md / final report): PLAN.md's D1 assumes
+# the app runs inside WSL2 with the repo on ext4. This checkout lives on a
+# Windows drive with the agent shell running Windows-native Python, and Docker
+# Desktop's Windows-native `docker`/`docker compose` CLI (verified working in
+# Phase 0) is used instead of the WSL2 socket path. Functionally equivalent for
+# this local, single-user tool; revisit if reload/inotify or mount performance
+# become a problem.
+fastapi>=0.111
+uvicorn[standard]>=0.30
+jinja2>=3.1
+pyyaml>=6.0
+python-multipart>=0.0.9
+markdown>=3.6

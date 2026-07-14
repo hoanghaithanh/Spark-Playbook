@@ -1,0 +1,19 @@
+# Rendered compose/config artifacts (regenerated via compose/cli.py render)
+compose/rendered/*
+!compose/rendered/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Generated data / shared scratch (future phases)
+scratch/
+
+# Claude Code local/session state (machine-specific, not shared)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
