@@ -522,6 +522,33 @@ skewed data can be generated on demand; a learner can freely experiment in Jupyt
 - Topics: `join-strategies` (US-2.3), `bucketing` — including the co-partitioned-no-shuffle vs still-shuffles
   contrast (US-2.4), `aqe` — skew-split + coalescing, AQE on/off comparison (US-2.5).
 
+### Phase 2.5 — Realtime cluster monitoring dashboard
+
+Pulled forward by the human to sit right after Phase 2 and before Phase 3 (streaming). A standalone, always-on,
+cluster-wide diagnostic page — complementary to the raw Spark UI (`:8080`/`:4040`) and the Phase 2 annotation
+engine, not a replacement. See `docs/requirements/realtime-monitoring-dashboard.md` (US-5.1–5.6) and the design
+ADR `docs/architecture/realtime-monitoring-dashboard.md` (D-A–D-E) for the resolved decisions.
+
+- New `app/monitoring/` module + standalone `/dashboard` page (D-E): overview node grid, job-detail stage
+  timeline + partition table, node-detail sparklines. No coupling into topic pages or the cluster panel; deep-links
+  out to the real Spark UI (US-5.6, G-RTD5).
+- **Live per-node CPU/RAM/disk/net** (master, workers, **and driver**) from **Docker directly** — one
+  project-scoped `docker stats --no-stream --format json` call per cycle, no cAdvisor sidecar (D-C, resolves the
+  requirements' Open Question 1). GC time (JVM-level, not container-level) comes from Spark's
+  `/api/v1/applications/<id>/executors` `totalGCTime` (D-D).
+- **Per-node task/partition execution detail** for the current/most-recently-completed stage from the existing
+  `:4040` stages/task REST data (US-5.2), and a derived, clearly-labeled stage **ETA + duration spread** (US-5.3).
+- **Real-time delivery via a single server-side collector + Server-Sent Events** (HTMX SSE extension), effective
+  latency ≤ 3 s (D-B) — the point where D4's per-fragment HTMX polling stops fitting, given three panels updating
+  at ~2 s. Still one process, still server-rendered fragments, no client-state framework.
+- **G3 (signal, not conclusions) is preserved (D-A):** the dashboard surfaces skew / imbalance / ETA-variance as
+  quantified signal but generates **no** tuning recommendations. The supplied mockup's "Suggestion:" lines are
+  deliberately dropped (also satisfying US-5.4 and the no-auto-tuning non-goal); the "bottleneck" cards become
+  neutral signal-spotlight cards.
+- Realistically several independently shippable stories (backlog #9–#13), not one ticket: resource monitoring
+  (US-5.1) and task/partition detail (US-5.2) are distinct data sources; ETA/diagnostic views (US-5.3/5.4) depend
+  on those; placement (US-5.6) resolved early per D-E.
+
 ### Phase 3 — Streaming + Kafka
 
 - Conditional `kafka` (KRaft, no ZooKeeper) service in the compose template, included only when

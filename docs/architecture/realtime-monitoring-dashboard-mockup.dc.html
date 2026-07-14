@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@font-face{font-family:'Inter';src:local('Inter');}
+body{margin:0;background:#f4f5f7;font-family:'Inter',Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;}
+a{color:#2563eb;text-decoration:none;}
+a:hover{color:#1d4ed8;text-decoration:underline;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.45;}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;flex-direction:column;color:#1a1d23;">
+
+  <!-- Top bar -->
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 28px;background:#12151c;color:#fff;">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div style="width:28px;height:28px;border-radius:7px;background:linear-gradient(135deg,#f97316,#ef4444);flex:none;"></div>
+      <div style="font-size:16px;font-weight:600;letter-spacing:-0.01em;">Spark Cluster Monitor</div>
+      <div style="font-size:12px;color:#8b93a3;padding-left:10px;border-left:1px solid #2a2f3a;margin-left:2px;">prod-cluster-01 · standalone</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:18px;">
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#8b93a3;">
+        <span style="width:7px;height:7px;border-radius:50%;background:#22c55e;animation:pulse 2s ease-in-out infinite;"></span>
+        Live · updates every 2s
+      </div>
+      <div style="font-size:12px;color:#8b93a3;">{{ nowLabel }}</div>
+    </div>
+  </div>
+
+  <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+  <!-- Alert banner -->
+  <sc-if value="{{ hasAlert }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 28px;background:#fff4e5;border-bottom:1px solid #fde3b0;color:#8a5300;font-size:13px;">
+      <span style="font-size:15px;">&#9888;</span>
+      <span style="font-weight:600;">{{ alertTitle }}</span>
+      <span style="color:#946b1f;">{{ alertDetail }}</span>
+      <a href="#" onClick="{{ goToJobDetail }}" style="margin-left:auto;font-weight:600;font-size:12px;">View job diagnosis →</a>
+    </div>
+  </sc-if>
+
+  <!-- Job summary strip -->
+  <div style="display:flex;align-items:stretch;gap:0;background:#fff;border-bottom:1px solid #e5e7eb;padding:18px 28px;gap:36px;">
+    <div>
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#8b93a3;margin-bottom:4px;">Job</div>
+      <div style="font-size:14px;font-weight:600;">{{ job.name }}</div>
+      <div style="font-size:12px;color:#8b93a3;margin-top:2px;">{{ job.id }}</div>
+    </div>
+    <div>
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#8b93a3;margin-bottom:4px;">Status</div>
+      <div style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:100px;font-size:12px;font-weight:600;background:{{ job.statusBg }};color:{{ job.statusColor }};">
+        <span style="width:6px;height:6px;border-radius:50%;background:{{ job.statusColor }};"></span>
+        {{ job.statusLabel }}
+      </div>
+    </div>
+    <div>
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#8b93a3;margin-bottom:4px;">Stage</div>
+      <div style="font-size:14px;font-weight:600;">{{ job.stageLabel }}</div>
+      <div style="font-size:12px;color:#8b93a3;margin-top:2px;">{{ job.stageName }}</div>
+    </div>
+    <div>
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#8b93a3;margin-bottom:4px;">Elapsed</div>
+      <div style="font-size:14px;font-weight:600;">{{ job.elapsed }}</div>
+    </div>
+    <div>
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#8b93a3;margin-bottom:4px;">ETA</div>
+      <div style="font-size:14px;font-weight:600;">{{ job.eta }}</div>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;">
+      <a href="#" onClick="{{ goToJobDetail }}" style="font-size:13px;font-weight:600;padding:8px 14px;border:1px solid #d8dbe2;border-radius:8px;color:#1a1d23;">Job Detail →</a>
+    </div>
+  </div>
+
+  <!-- Node grid -->
+  <div style="flex:1;padding:26px 28px;">
+    <div style="font-size:13px;font-weight:600;color:#4a5061;margin-bottom:14px;">Cluster Nodes · {{ nodeCountLabel }}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;">
+      <sc-for list="{{ nodes }}" as="node" hint-placeholder-count="4">
+        <div onClick="{{ node.openDetail }}" style="cursor:pointer;background:#fff;border:1px solid {{ node.borderColor }};border-radius:12px;padding:18px;box-shadow:0 1px 2px rgba(16,24,40,.04);">
+          <div style="display:flex;align-items:center;justify-content:between;gap:8px;margin-bottom:14px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div style="width:8px;height:8px;border-radius:50%;background:{{ node.statusColor }};"></div>
+              <div style="font-size:14px;font-weight:600;">{{ node.name }}</div>
+              <sc-if value="{{ node.isMaster }}" hint-placeholder-val="{{ false }}">
+                <span style="font-size:10px;font-weight:700;letter-spacing:.04em;color:#7c3aed;background:#f3ebff;padding:2px 6px;border-radius:5px;">MASTER</span>
+              </sc-if>
+            </div>
+            <div style="margin-left:auto;font-size:11px;color:#8b93a3;">{{ node.host }}</div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 14px;margin-bottom:14px;">
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:11px;color:#8b93a3;margin-bottom:4px;">
+                <span>CPU</span><span style="font-weight:600;color:{{ node.cpuColor }};">{{ node.cpuLabel }}</span>
+              </div>
+              <div style="height:6px;background:#eef0f3;border-radius:4px;overflow:hidden;">
+                <div style="height:100%;width:{{ node.cpuPct }}%;background:{{ node.cpuColor }};border-radius:4px;transition:width .6s ease;"></div>
+              </div>
+            </div>
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:11px;color:#8b93a3;margin-bottom:4px;">
+                <span>RAM</span><span style="font-weight:600;color:{{ node.ramColor }};">{{ node.ramLabel }}</span>
+              </div>
+              <div style="height:6px;background:#eef0f3;border-radius:4px;overflow:hidden;">
+                <div style="height:100%;width:{{ node.ramPct }}%;background:{{ node.ramColor }};border-radius:4px;transition:width .6s ease;"></div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding-top:12px;border-top:1px solid #f0f1f4;">
+            <div>
+              <div style="font-size:10px;color:#8b93a3;margin-bottom:2px;">Disk I/O</div>
+              <div style="font-size:12.5px;font-weight:600;">{{ node.diskIo }}</div>
+            </div>
+            <div>
+              <div style="font-size:10px;color:#8b93a3;margin-bottom:2px;">Net I/O</div>
+              <div style="font-size:12.5px;font-weight:600;">{{ node.netIo }}</div>
+            </div>
+            <div>
+              <div style="font-size:10px;color:#8b93a3;margin-bottom:2px;">GC time</div>
+              <div style="font-size:12.5px;font-weight:600;color:{{ node.gcColor }};">{{ node.gcLabel }}</div>
+            </div>
+          </div>
+
+          <sc-if value="{{ node.hasPartitions }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:1px solid #f0f1f4;font-size:12px;">
+              <span style="color:#8b93a3;">Partitions handled</span>
+              <span style="font-weight:600;">{{ node.partitionCount }}</span>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ node.flagged }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:11.5px;color:#b91c1c;background:#fef2f2;padding:6px 8px;border-radius:6px;">
+              <span>&#9888;</span><span>{{ node.flagReason }}</span>
+            </div>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isJobDetail }}" hint-placeholder-val="{{ false }}">
+  <div style="display:flex;align-items:center;gap:14px;padding:14px 28px;background:#fff;border-bottom:1px solid #e5e7eb;">
+    <a href="#" onClick="{{ goToOverview }}" style="font-size:13px;font-weight:600;color:#4a5061;">← Overview</a>
+    <div style="font-size:14px;font-weight:600;">{{ job.name }}</div>
+    <div style="font-size:12px;color:#8b93a3;">{{ job.id }}</div>
+    <div style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:100px;font-size:12px;font-weight:600;background:{{ job.statusBg }};color:{{ job.statusColor }};margin-left:8px;">
+      <span style="width:6px;height:6px;border-radius:50%;background:{{ job.statusColor }};"></span>
+      {{ job.statusLabel }}
+    </div>
+    <div style="margin-left:auto;display:flex;gap:24px;font-size:12px;color:#8b93a3;">
+      <span>Elapsed <strong style="color:#1a1d23;">{{ job.elapsed }}</strong></span>
+      <span>ETA <strong style="color:#1a1d23;">{{ job.eta }}</strong></span>
+    </div>
+  </div>
+
+  <div style="padding:24px 28px;">
+    <!-- Stage timeline -->
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:20px;">
+      <div style="font-size:13px;font-weight:600;color:#4a5061;margin-bottom:16px;">Stage timeline · critical path</div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <sc-for list="{{ stages }}" as="stage" hint-placeholder-count="5">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="width:110px;font-size:12px;color:#4a5061;flex:none;">{{ stage.label }}</div>
+            <div style="flex:1;height:26px;background:#f0f1f4;border-radius:6px;position:relative;overflow:hidden;">
+              <div style="position:absolute;left:{{ stage.startPct }}%;width:{{ stage.widthPct }}%;height:100%;background:{{ stage.color }};border-radius:6px;display:flex;align-items:center;padding:0 8px;">
+                <span style="font-size:11px;color:#fff;font-weight:600;white-space:nowrap;">{{ stage.durationLabel }}</span>
+              </div>
+            </div>
+            <div style="width:120px;font-size:11.5px;color:#8b93a3;flex:none;text-align:right;">{{ stage.note }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <!-- Bottleneck flags -->
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px;">
+      <sc-for list="{{ bottlenecks }}" as="b" hint-placeholder-count="3">
+        <div style="background:#fff;border:1px solid {{ b.borderColor }};border-radius:12px;padding:16px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <span style="font-size:15px;">{{ b.icon }}</span>
+            <div style="font-size:12.5px;font-weight:700;color:{{ b.color }};">{{ b.title }}</div>
+          </div>
+          <div style="font-size:12.5px;color:#4a5061;line-height:1.5;">{{ b.detail }}</div>
+          <div style="font-size:11.5px;color:#8b93a3;margin-top:8px;font-style:italic;">Suggestion: {{ b.suggestion }}</div>
+        </div>
+      </sc-for>
+    </div>
+
+    <!-- Partition table per node -->
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div style="font-size:13px;font-weight:600;color:#4a5061;">Partition distribution · {{ job.stageName }}</div>
+        <div style="font-size:11.5px;color:#8b93a3;">{{ partitionSummary }}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:70px 1fr 90px 90px 100px 100px 90px;gap:0 12px;font-size:11px;color:#8b93a3;padding:0 4px 8px;border-bottom:1px solid #f0f1f4;text-transform:uppercase;letter-spacing:.03em;">
+        <div>Node</div><div>Partition</div><div>Size</div><div>Rows</div><div>Shuffle R/W</div><div>Time / ETA</div><div>Retries</div>
+      </div>
+      <div style="max-height:360px;overflow-y:auto;">
+        <sc-for list="{{ partitions }}" as="p" hint-placeholder-count="8">
+          <div style="display:grid;grid-template-columns:70px 1fr 90px 90px 100px 100px 90px;gap:0 12px;align-items:center;padding:9px 4px;border-bottom:1px solid #f7f7f8;background:{{ p.rowBg }};">
+            <div style="font-size:12px;font-weight:600;">{{ p.node }}</div>
+            <div>
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+                <div style="font-size:12px;">{{ p.id }}</div>
+                <sc-if value="{{ p.isSkewed }}" hint-placeholder-val="{{ false }}">
+                  <span style="font-size:9.5px;font-weight:700;color:#dc2626;background:#fef2f2;padding:1px 5px;border-radius:4px;">SKEW</span>
+                </sc-if>
+              </div>
+              <div style="height:5px;background:#eef0f3;border-radius:3px;overflow:hidden;width:90%;">
+                <div style="height:100%;width:{{ p.sizeBarPct }}%;background:{{ p.sizeColor }};border-radius:3px;"></div>
+              </div>
+            </div>
+            <div style="font-size:12px;color:{{ p.sizeColor }};font-weight:600;">{{ p.sizeLabel }}</div>
+            <div style="font-size:12px;color:#4a5061;">{{ p.rowsLabel }}</div>
+            <div style="font-size:11.5px;color:#4a5061;">{{ p.shuffleLabel }}</div>
+            <div style="font-size:12px;color:#4a5061;">{{ p.timeLabel }}</div>
+            <div style="font-size:12px;font-weight:600;color:{{ p.retriesColor }};">{{ p.retriesLabel }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ isNodeDetail }}" hint-placeholder-val="{{ false }}">
+  <div style="display:flex;align-items:center;gap:14px;padding:14px 28px;background:#fff;border-bottom:1px solid #e5e7eb;">
+    <a href="#" onClick="{{ goToOverview }}" style="font-size:13px;font-weight:600;color:#4a5061;">← Overview</a>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div style="width:8px;height:8px;border-radius:50%;background:{{ selectedNode.statusColor }};"></div>
+      <div style="font-size:14px;font-weight:600;">{{ selectedNode.name }}</div>
+      <sc-if value="{{ selectedNode.isMaster }}" hint-placeholder-val="{{ false }}">
+        <span style="font-size:10px;font-weight:700;letter-spacing:.04em;color:#7c3aed;background:#f3ebff;padding:2px 6px;border-radius:5px;">MASTER</span>
+      </sc-if>
+    </div>
+    <div style="font-size:12px;color:#8b93a3;">{{ selectedNode.host }}</div>
+    <sc-if value="{{ selectedNode.flagged }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;align-items:center;gap:6px;margin-left:8px;font-size:11.5px;color:#b91c1c;background:#fef2f2;padding:4px 8px;border-radius:6px;">
+        <span>⚠</span><span>{{ selectedNode.flagReason }}</span>
+      </div>
+    </sc-if>
+  </div>
+
+  <div style="padding:24px 28px;">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;">
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
+        <div style="font-size:11px;color:#8b93a3;margin-bottom:6px;">CPU (current)</div>
+        <div style="font-size:22px;font-weight:700;color:{{ selectedNode.cpuColor }};">{{ selectedNode.cpuLabel }}</div>
+      </div>
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
+        <div style="font-size:11px;color:#8b93a3;margin-bottom:6px;">RAM (current)</div>
+        <div style="font-size:22px;font-weight:700;color:{{ selectedNode.ramColor }};">{{ selectedNode.ramLabel }}</div>
+      </div>
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
+        <div style="font-size:11px;color:#8b93a3;margin-bottom:6px;">GC time</div>
+        <div style="font-size:22px;font-weight:700;color:{{ selectedNode.gcColor }};">{{ selectedNode.gcLabel }}</div>
+      </div>
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;">
+        <div style="font-size:11px;color:#8b93a3;margin-bottom:6px;">Disk / Net I/O</div>
+        <div style="font-size:15px;font-weight:700;">{{ selectedNode.diskIo }} <span style="color:#c7cad2;">/</span> {{ selectedNode.netIo }}</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px;">
+        <div style="font-size:12.5px;font-weight:600;color:#4a5061;margin-bottom:12px;">CPU history</div>
+        <div style="display:flex;align-items:flex-end;gap:3px;height:70px;">
+          <sc-for list="{{ selectedNode.cpuHistory }}" as="h" hint-placeholder-count="20">
+            <div style="flex:1;background:{{ h.color }};height:{{ h.pct }}%;border-radius:2px 2px 0 0;"></div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px;">
+        <div style="font-size:12.5px;font-weight:600;color:#4a5061;margin-bottom:12px;">RAM history</div>
+        <div style="display:flex;align-items:flex-end;gap:3px;height:70px;">
+          <sc-for list="{{ selectedNode.ramHistory }}" as="h" hint-placeholder-count="20">
+            <div style="flex:1;background:{{ h.color }};height:{{ h.pct }}%;border-radius:2px 2px 0 0;"></div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <sc-if value="{{ selectedNode.hasPartitions }}" hint-placeholder-val="{{ false }}">
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;">
+        <div style="font-size:13px;font-weight:600;color:#4a5061;margin-bottom:14px;">Partitions on {{ selectedNode.name }} · {{ selectedNode.partitionCount }} total</div>
+        <div style="display:grid;grid-template-columns:1fr 90px 90px 100px 100px 90px;gap:0 12px;font-size:11px;color:#8b93a3;padding:0 4px 8px;border-bottom:1px solid #f0f1f4;text-transform:uppercase;letter-spacing:.03em;">
+          <div>Partition</div><div>Size</div><div>Rows</div><div>Shuffle R/W</div><div>Time / ETA</div><div>Retries</div>
+        </div>
+        <div style="max-height:320px;overflow-y:auto;">
+          <sc-for list="{{ selectedNode.partitionRows }}" as="p" hint-placeholder-count="6">
+            <div style="display:grid;grid-template-columns:1fr 90px 90px 100px 100px 90px;gap:0 12px;align-items:center;padding:9px 4px;border-bottom:1px solid #f7f7f8;background:{{ p.rowBg }};">
+              <div>
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+                  <div style="font-size:12px;">{{ p.id }}</div>
+                  <sc-if value="{{ p.isSkewed }}" hint-placeholder-val="{{ false }}">
+                    <span style="font-size:9.5px;font-weight:700;color:#dc2626;background:#fef2f2;padding:1px 5px;border-radius:4px;">SKEW</span>
+                  </sc-if>
+                </div>
+                <div style="height:5px;background:#eef0f3;border-radius:3px;overflow:hidden;width:90%;">
+                  <div style="height:100%;width:{{ p.sizeBarPct }}%;background:{{ p.sizeColor }};border-radius:3px;"></div>
+                </div>
+              </div>
+              <div style="font-size:12px;color:{{ p.sizeColor }};font-weight:600;">{{ p.sizeLabel }}</div>
+              <div style="font-size:12px;color:#4a5061;">{{ p.rowsLabel }}</div>
+              <div style="font-size:11.5px;color:#4a5061;">{{ p.shuffleLabel }}</div>
+              <div style="font-size:12px;color:#4a5061;">{{ p.timeLabel }}</div>
+              <div style="font-size:12px;font-weight:600;color:{{ p.retriesColor }};">{{ p.retriesLabel }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const BASE_NODES = [
+  { name: 'node-master', host: '10.0.1.10', isMaster: true, baseCpu: 22, baseRam: 38, partitions: null },
+  { name: 'worker-1', host: '10.0.1.11', isMaster: false, baseCpu: 78, baseRam: 71, partitions: 24 },
+  { name: 'worker-2', host: '10.0.1.12', isMaster: false, baseCpu: 91, baseRam: 84, partitions: 41, flagged: true, flagReason: 'Data skew: handling 1.7x avg partition size' },
+  { name: 'worker-3', host: '10.0.1.13', isMaster: false, baseCpu: 55, baseRam: 60, partitions: 22 },
+  { name: 'worker-4', host: '10.0.1.14', isMaster: false, baseCpu: 61, baseRam: 65, partitions: 25 },
+];
+
+function colorForPct(pct, warn, crit) {
+  if (pct >= crit) return '#dc2626';
+  if (pct >= warn) return '#d97706';
+  return '#16a34a';
+}
+
+const STAGES = [
+  { label: 'Stage 1', key: 'read', startPct: 0, widthPct: 12, duration: 22, note: 'read: events parquet' },
+  { label: 'Stage 2', key: 'filter', startPct: 12, widthPct: 8, duration: 14, note: 'filter + project' },
+  { label: 'Stage 3', key: 'join', startPct: 20, widthPct: 46, duration: 82, note: 'shuffle join · current', current: true },
+  { label: 'Stage 4', key: 'agg', startPct: 66, widthPct: 22, duration: 40, note: 'aggregate (pending)', pending: true },
+  { label: 'Stage 5', key: 'write', startPct: 88, widthPct: 12, duration: 20, note: 'write output (pending)', pending: true },
+];
+
+const WORKER_NAMES = ['worker-1', 'worker-2', 'worker-3', 'worker-4'];
+
+function seedPartitions() {
+  const parts = [];
+  let id = 0;
+  WORKER_NAMES.forEach((node, wi) => {
+    const count = wi === 1 ? 9 : 6; // worker-2 gets more (skew)
+    for (let i = 0; i < count; i++) {
+      id++;
+      const isSkewed = wi === 1 && i < 3;
+      const baseMb = isSkewed ? 890 + i * 120 : 180 + Math.random() * 140;
+      parts.push({
+        node,
+        id: `p-${String(id).padStart(3, '0')}`,
+        sizeMb: Math.round(baseMb),
+        rows: Math.round(baseMb * 4200),
+        shuffleR: (baseMb / 210).toFixed(1),
+        shuffleW: (baseMb / 260).toFixed(1),
+        baseTimeS: Math.round((baseMb / 40) + (isSkewed ? 25 : 0)),
+        retries: isSkewed && i === 0 ? 2 : 0,
+        isSkewed,
+      });
+    }
+  });
+  return parts;
+}
+const PARTITIONS = seedPartitions();
+
+class Component extends DCLogic {
+  state = { tick: 0, view: 'overview', selectedNodeName: null, history: {} };
+
+  componentDidMount() {
+    this._timer = setInterval(() => this.setState(s => ({ tick: s.tick + 1 })), 2000);
+  }
+  componentWillUnmount() {
+    clearInterval(this._timer);
+  }
+
+  renderVals() {
+    const tick = this.state.tick;
+    const jitter = (seed, amp) => Math.sin(tick * 0.7 + seed) * amp;
+
+    const nodes = BASE_NODES.map((n, i) => {
+      const cpuPct = Math.max(4, Math.min(99, Math.round(n.baseCpu + jitter(i, 6))));
+      const ramPct = Math.max(4, Math.min(97, Math.round(n.baseRam + jitter(i + 10, 4))));
+      const cpuColor = colorForPct(cpuPct, 70, 88);
+      const ramColor = colorForPct(ramPct, 75, 90);
+      const gcMs = Math.max(2, Math.round(8 + jitter(i + 20, 12) + (n.flagged ? 40 : 0)));
+      const gcColor = gcMs > 40 ? '#dc2626' : gcMs > 20 ? '#d97706' : '#4a5061';
+      const netMb = (2 + Math.abs(jitter(i + 30, 3))).toFixed(1);
+      const diskMb = (1 + Math.abs(jitter(i + 40, 2))).toFixed(1);
+      const statusColor = n.flagged ? '#dc2626' : cpuColor === '#dc2626' ? '#dc2626' : '#16a34a';
+      const borderColor = n.flagged ? '#fecaca' : '#e5e7eb';
+
+      const cpuHistory = [];
+      const ramHistory = [];
+      for (let h = 19; h >= 0; h--) {
+        const ht = tick - h;
+        const cv = Math.max(4, Math.min(99, Math.round(n.baseCpu + Math.sin(ht * 0.7 + i) * 6)));
+        const rv = Math.max(4, Math.min(97, Math.round(n.baseRam + Math.sin(ht * 0.7 + i + 10) * 4)));
+        cpuHistory.push({ pct: cv, color: colorForPct(cv, 70, 88) });
+        ramHistory.push({ pct: rv, color: colorForPct(rv, 75, 90) });
+      }
+
+      return {
+        name: n.name,
+        host: n.host,
+        isMaster: n.isMaster,
+        cpuPct, ramPct,
+        cpuLabel: cpuPct + '%',
+        ramLabel: ramPct + '%',
+        cpuColor, ramColor, gcColor,
+        statusColor, borderColor,
+        diskIo: diskMb + ' MB/s',
+        netIo: netMb + ' MB/s',
+        gcLabel: gcMs + ' ms',
+        hasPartitions: n.partitions != null,
+        partitionCount: n.partitions,
+        flagged: !!n.flagged,
+        flagReason: n.flagReason || '',
+        cpuHistory, ramHistory,
+        openDetail: () => this.setState({ view: 'nodeDetail', selectedNodeName: n.name }),
+      };
+    });
+
+    const workerCount = BASE_NODES.filter(n => !n.isMaster).length;
+    const flaggedNode = nodes.find(n => n.flagged);
+
+    const job = {
+      name: 'daily_events_aggregation',
+      id: 'app-20260714-0042',
+      statusLabel: 'Running · issue detected',
+      statusBg: '#fef2f2',
+      statusColor: '#dc2626',
+      stageLabel: 'Stage 3 / 5',
+      stageName: 'shuffle join: events ⋈ users',
+      elapsed: '4m 12s',
+      eta: '~2m 40s',
+    };
+
+    const stages = STAGES.map(s => ({
+      label: s.label,
+      startPct: s.startPct,
+      widthPct: s.widthPct,
+      durationLabel: s.pending ? '—' : s.duration + 's',
+      note: s.note,
+      color: s.current ? '#dc2626' : s.pending ? '#c7cad2' : '#16a34a',
+    }));
+
+    const bottlenecks = [
+      { icon: '⚖️', title: 'Data skew', color: '#dc2626', borderColor: '#fecaca',
+        detail: 'worker-2 holds 3 partitions ~5x larger than the cluster median in the join stage.',
+        suggestion: 'salt the join key or repartition on a higher-cardinality column.' },
+      { icon: '🧠', title: 'Memory pressure', color: '#d97706', borderColor: '#fde68a',
+        detail: 'worker-2 GC time trending upward (40ms+), RAM at 84% — spill to disk likely during shuffle.',
+        suggestion: 'increase executor memory or reduce shuffle partition size.' },
+      { icon: '⏱️', title: 'Critical path', color: '#2563eb', borderColor: '#bfdbfe',
+        detail: 'Stage 3 (shuffle join) is 58% of total runtime and gating stages 4–5.',
+        suggestion: 'broadcast the smaller side if it fits in memory to skip the shuffle.' },
+    ];
+
+    const t = this.state.tick;
+    const partitions = PARTITIONS.map((p, i) => {
+      const jitterT = Math.max(0, p.baseTimeS + Math.sin(t * 0.5 + i) * 3);
+      const sizeColor = p.sizeMb > 700 ? '#dc2626' : p.sizeMb > 400 ? '#d97706' : '#16a34a';
+      return {
+        node: p.node,
+        id: p.id,
+        isSkewed: p.isSkewed,
+        sizeMb: p.sizeMb,
+        sizeLabel: p.sizeMb + ' MB',
+        sizeBarPct: Math.min(100, Math.round((p.sizeMb / 1100) * 100)),
+        sizeColor,
+        rowsLabel: p.rows.toLocaleString(),
+        shuffleLabel: `${p.shuffleR}/${p.shuffleW} MB`,
+        timeLabel: jitterT.toFixed(0) + 's',
+        retriesLabel: p.retries > 0 ? p.retries + ' retries' : '—',
+        retriesColor: p.retries > 0 ? '#dc2626' : '#8b93a3',
+        rowBg: p.isSkewed ? '#fef9f2' : 'transparent',
+      };
+    });
+
+    const avgSize = Math.round(PARTITIONS.reduce((a, p) => a + p.sizeMb, 0) / PARTITIONS.length);
+    const maxSize = Math.max(...PARTITIONS.map(p => p.sizeMb));
+
+    return {
+      nowLabel: new Date().toLocaleTimeString(),
+      nodeCountLabel: `1 master · ${workerCount} workers`,
+      nodes,
+      hasAlert: !!flaggedNode,
+      alertTitle: flaggedNode ? `Skew detected on ${flaggedNode.name}` : '',
+      alertDetail: flaggedNode ? '— consider repartitioning or salting the join key to rebalance load.' : '',
+      job,
+      isOverview: this.state.view === 'overview',
+      isJobDetail: this.state.view === 'jobDetail',
+      isNodeDetail: this.state.view === 'nodeDetail',
+      goToJobDetail: (e) => { e.preventDefault(); this.setState({ view: 'jobDetail' }); },
+      goToOverview: (e) => { e.preventDefault(); this.setState({ view: 'overview' }); },
+      stages,
+      bottlenecks,
+      partitions,
+      partitionSummary: `${PARTITIONS.length} partitions · avg ${avgSize} MB · max ${maxSize} MB (${(maxSize / avgSize).toFixed(1)}x skew)`,
+      selectedNode: this.getSelectedNode(nodes, partitions),
+    };
+  }
+
+  getSelectedNode(nodes, partitions) {
+    const node = nodes.find(n => n.name === this.state.selectedNodeName) || nodes[0];
+    if (!node) return {};
+    return {
+      ...node,
+      partitionRows: partitions.filter(p => p.node === node.name),
+    };
+  }
+}
+
+</script>
+</body>
+</html>
