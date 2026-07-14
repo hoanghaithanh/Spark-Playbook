@@ -102,6 +102,12 @@ async def test_jupyter_csp_header_allows_the_app_origin_to_frame_it():
         csp = resp.headers.get("Content-Security-Policy", "")
         assert "frame-ancestors" in csp, f"no frame-ancestors directive in CSP: {csp!r}"
         assert config.APP_ORIGIN in csp, f"app origin {config.APP_ORIGIN!r} not allowed by CSP: {csp!r}"
+        # test-engineer re-validation of #7: browsers treat localhost:8000 and
+        # 127.0.0.1:8000 as different origins for frame-ancestors purposes,
+        # so a learner opening the app via either spelling must both work --
+        # driver/jupyter_config.py defensively allows both even though
+        # app.config.APP_ORIGIN itself stays the canonical localhost value.
+        assert "http://127.0.0.1:8000" in csp, f"127.0.0.1 origin not allowed by CSP: {csp!r}"
         assert "'self'" in csp
 
         # Jupyter must not also emit the legacy X-Frame-Options header, which

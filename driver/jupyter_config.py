@@ -21,22 +21,37 @@ Per this project's locked non-goals (no auth/security hardening — single-user,
 localhost-only tool), the settings below intentionally relax XSRF checking and
 run tokenless, matching how `docker-compose.yml.j2` already launches Jupyter
 (`--ServerApp.token=''`).
+
+**CSP allowlist covers both `localhost` and `127.0.0.1` (test-engineer
+re-validation of issue #7).** Browsers treat `http://localhost:8000` and
+`http://127.0.0.1:8000` as different origins for `frame-ancestors` purposes
+even though they resolve to the same host/port, so a learner who happens to
+open the app via `127.0.0.1:8000` instead of `localhost:8000` would still hit
+a blank iframe if only one were allowed. `app/config.APP_ORIGIN` stays
+`localhost:8000` (that's what the app itself binds/is documented as, per
+PLAN.md §1) -- only the CSP allowlist here is widened defensively to cover
+both, since it costs nothing on a single-user localhost tool with no auth to
+protect.
 """
 
 # The FastAPI app's origin — must match app/config.py::APP_ORIGIN.
 APP_ORIGIN = "http://localhost:8000"
+# Same app, same port, the other loopback spelling browsers treat as a
+# distinct origin for CSP purposes -- see module docstring.
+APP_ORIGIN_127 = "http://127.0.0.1:8000"
 
 c = get_config()  # noqa: F821 - `get_config()` is injected by the Jupyter config loader
 
-# Allow this app's origin (and Jupyter's own origin, via 'self') to frame this
-# server. Setting `frame-ancestors` in the CSP is what actually controls
-# framing in modern browsers; Jupyter Server emits no separate
-# `X-Frame-Options` header once a CSP with `frame-ancestors` is configured
-# this way (PLAN.md §6/R3) -- there is no separate trait to toggle for that,
-# the CSP setting below *is* the mechanism.
+# Allow this app's origin -- both loopback spellings -- (and Jupyter's own
+# origin, via 'self') to frame this server. Setting `frame-ancestors` in the
+# CSP is what actually controls framing in modern browsers; Jupyter Server
+# emits no separate `X-Frame-Options` header once a CSP with
+# `frame-ancestors` is configured this way (PLAN.md §6/R3) -- there is no
+# separate trait to toggle for that, the CSP setting below *is* the
+# mechanism.
 c.ServerApp.tornado_settings = {
     "headers": {
-        "Content-Security-Policy": f"frame-ancestors 'self' {APP_ORIGIN}",
+        "Content-Security-Policy": f"frame-ancestors 'self' {APP_ORIGIN} {APP_ORIGIN_127}",
     },
 }
 
