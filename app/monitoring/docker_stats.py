@@ -93,20 +93,32 @@ class ContainerStat:
 
 
 async def _run(*args: str, timeout_s: float) -> Optional[str]:
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
-        except asyncio.TimeoutError:
-            if proc.returncode is None:
-                proc.kill()
-                await proc.wait()
-            return None
-    except (OSError, asyncio.CancelledError):
+        stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)
+    except asyncio.TimeoutError:
+        if proc.returncode is None:
+            proc.kill()
+            await proc.wait()
+        return None
+    except asyncio.CancelledError:
+        # Issue #18 (mirrors Phase 1 issue #3, `compose_ops.py`'s own fix for
+        # the identical bug class): the *task* awaiting this coroutine was
+        # cancelled -- routinely, e.g. `DashboardCollector.unsubscribe()`
+        # calling `self._task.cancel()` on every last-SSE-client disconnect,
+        # which lands mid-`await proc.communicate()` often since this runs
+        # every ~2s for as long as a dashboard tab is open. Without killing
+        # and reaping it here, the underlying `docker` CLI process is left
+        # running as an orphan of the app's process. Kill it and reap it
+        # before propagating the cancellation, exactly like the
+        # `TimeoutError` branch above and `compose_ops._run()`'s own fix.
+        if proc.returncode is None:
+            proc.kill()
+            await proc.wait()
         raise
     if proc.returncode != 0:
         return None

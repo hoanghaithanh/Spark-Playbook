@@ -197,6 +197,63 @@ class TestSample:
         assert result[0].container_id == "abc123"
 
 
+class _HangingProc:
+    """A fake subprocess whose `communicate()` never resolves on its own --
+    used to put `_run()` in a controlled, suspended `await` state so a test
+    can cancel the awaiting task from outside and observe whether the
+    subprocess itself gets cleaned up."""
+
+    def __init__(self):
+        self.returncode = None
+        self.killed = False
+        self.waited = False
+
+    async def communicate(self):
+        await asyncio.Event().wait()  # only ever resolves via cancellation
+
+    def kill(self):
+        self.killed = True
+
+    async def wait(self):
+        self.waited = True
+
+
+class TestRunSubprocessCleanupOnCancel:
+    @pytest.mark.asyncio
+    async def test_cancelling_run_kills_the_subprocess_not_just_reraises(self, monkeypatch):
+        """Regression test mirroring Phase 1 issue #3 (the `lifecycle/manager.py`
+        subprocess-leak bug), found by re-reading `_run()`'s exception handling
+        rather than by grep: on a real `asyncio.TimeoutError`, `_run()`
+        correctly calls `proc.kill()` / `proc.wait()` before returning -- but
+        on `asyncio.CancelledError` (e.g. the dashboard collector's own
+        background task being cancelled by `DashboardCollector.unsubscribe()`
+        while mid-`docker stats`/`docker inspect`, which is a routine, frequent
+        event -- the last dashboard tab closing while a ~2s docker call is in
+        flight), the `except (OSError, asyncio.CancelledError): raise` branch
+        re-raises immediately without ever killing the child process. The
+        `docker` CLI process is left running as an orphan of the app's process,
+        never reaped -- a real resource leak on an entirely normal code path,
+        not just a rare edge case."""
+        proc = _HangingProc()
+
+        async def fake_exec(*args, **kwargs):
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+        task = asyncio.create_task(docker_stats._run("docker", "stats", timeout_s=5.0))
+        await asyncio.sleep(0.05)  # let it actually reach `await proc.communicate()`
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert proc.killed, (
+            "the subprocess was left running after the awaiting task was "
+            "cancelled -- `_run()` must kill()/wait() it on CancelledError "
+            "the same way it already does on TimeoutError"
+        )
+
+
 class TestContainerIpMap:
     @pytest.mark.asyncio
     async def test_maps_ip_to_container_name(self, monkeypatch):

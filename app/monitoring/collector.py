@@ -97,6 +97,26 @@ def _cpu_limits(params: ClusterParams) -> Dict[str, float]:
     return limits
 
 
+def _alert_title_for(node: NodeStat, skew_reasons: Dict[str, str], imbalance_reasons: Dict[str, str]) -> str:
+    """Issue #21: the alert banner's title used to be derived by
+    `flag_reason.split(':')[0]`, which silently assumed every flag reason
+    has a colon. `diagnostics.node_skew_reasons()`'s strings do ("Data skew:
+    handling ..."), but `diagnostics.node_imbalance_reasons()`'s don't ("CPU
+    saturated (95%) while worker-2 is idle (10%)") -- so a node flagged
+    purely by CPU imbalance produced a garbled title dumping the whole
+    detail sentence. Look up which diagnostic actually flagged this node
+    (both dicts are in scope where the flag itself gets set) and pick a
+    short, factual category label deliberately instead of parsing the
+    detail text."""
+    if node.name in skew_reasons:
+        category = "Skew"
+    elif node.name in imbalance_reasons:
+        category = "Resource imbalance"
+    else:
+        category = "Issue"
+    return f"{category} detected on {node.name}"
+
+
 def _select_current_stage(stages_raw: List[dict]) -> Optional[dict]:
     """The running stage if any, else the most recently completed one
     (US-5.2 c3 -- "most recently completed stage" retention boundary, ADR
@@ -251,9 +271,21 @@ class DashboardCollector:
         elapsed_s = (now - self._prev_ts) if self._prev_ts is not None else None
         self._prev_ts = now
 
-        app_id = app_client.fetch_current_app_id(timeout_s=2.0)
-        executors_raw = app_client.fetch_executors(app_id, timeout_s=2.0) if app_id else None
-        stages_raw = app_client.fetch_stages(app_id, timeout_s=2.0) if app_id else None
+        # Issue #19: `app_client.fetch_*()` are synchronous, blocking
+        # `urllib.request.urlopen()` calls under the hood. This whole app is
+        # single-process/single-event-loop, so calling them directly here
+        # (no `await`, no thread offload) freezes *every* concurrently
+        # running coroutine -- not just the dashboard -- for up to each
+        # call's own timeout whenever `:4040` is slow/unreachable (a real,
+        # already-documented failure mode, PLAN.md R2), repeated every ~2s
+        # for as long as any dashboard client is connected. Offload each to
+        # a worker thread so a slow/stuck driver only stalls this cycle's
+        # own data, not the whole app.
+        app_id = await asyncio.to_thread(app_client.fetch_current_app_id, timeout_s=2.0)
+        executors_raw = (
+            await asyncio.to_thread(app_client.fetch_executors, app_id, timeout_s=2.0) if app_id else None
+        )
+        stages_raw = await asyncio.to_thread(app_client.fetch_stages, app_id, timeout_s=2.0) if app_id else None
 
         ip_to_name: Dict[str, str] = {}
         if app_id:
@@ -269,7 +301,8 @@ class DashboardCollector:
             # `length` passed explicitly -- found by actually running this
             # against a real 200-task stage: the REST endpoint silently caps
             # at 20 tasks otherwise (app_client.fetch_task_list's docstring).
-            tasks_raw = app_client.fetch_task_list(
+            tasks_raw = await asyncio.to_thread(
+                app_client.fetch_task_list,
                 app_id,
                 current_stage.get("stageId"),
                 current_stage.get("attemptId", 0),
@@ -302,12 +335,14 @@ class DashboardCollector:
         job, stages_bars, stage_durations = self._build_job(app_id, current_stage, stages_raw, task_samples)
 
         signal_cards = self._build_signal_cards(
-            task_samples, skewed_ids, resource_samples, stage_durations, job
+            task_samples, skewed_ids, resource_samples, stage_durations, job, current_stage
         )
 
         flagged_node = next((n for n in nodes if n.flagged), None)
         has_alert = flagged_node is not None
-        alert_title = f"{flagged_node.flag_reason.split(':')[0]} detected on {flagged_node.name}" if flagged_node else ""
+        alert_title = (
+            _alert_title_for(flagged_node, skew_reasons, imbalance_reasons) if flagged_node else ""
+        )
         alert_detail = flagged_node.flag_reason if flagged_node else ""
 
         worker_count = sum(1 for n in nodes if n.role == "worker")
@@ -634,11 +669,23 @@ class DashboardCollector:
         return job, bars, stage_durations
 
     def _build_signal_cards(
-        self, task_samples, skewed_ids, resource_samples, stage_durations, job
+        self, task_samples, skewed_ids, resource_samples, stage_durations, job, current_stage
     ) -> List[SignalCard]:
         if job is None:
             return []
         cards: List[SignalCard] = []
+
+        # Issue #20: every card used to hardcode `deep_link=None`, so US-5.6's
+        # "deep link into the real Spark UI" criterion was never actually
+        # met even though `app_client.stage_ui_url()` already exists and is
+        # used for the identical purpose in `annotation.py`. All three
+        # signal cards are derived from the current/most-recently-completed
+        # stage's own data, so they all deep-link to that same stage page.
+        deep_link = None
+        if current_stage is not None and current_stage.get("stageId") is not None:
+            deep_link = app_client.stage_ui_url(
+                current_stage.get("stageId"), current_stage.get("attemptId", 0)
+            )
 
         skew_detail = diagnostics.partition_size_signal(task_samples, skewed_ids)
         if skew_detail:
@@ -649,7 +696,7 @@ class DashboardCollector:
                     detail=skew_detail,
                     color=config.DASHBOARD_COLOR_RED,
                     border_color="#fecaca",
-                    deep_link=None,
+                    deep_link=deep_link,
                 )
             )
 
@@ -662,7 +709,7 @@ class DashboardCollector:
                     detail=gc_detail,
                     color=config.DASHBOARD_COLOR_AMBER,
                     border_color="#fde68a",
-                    deep_link=None,
+                    deep_link=deep_link,
                 )
             )
 
@@ -675,7 +722,7 @@ class DashboardCollector:
                     detail=cp_detail,
                     color="#2563eb",
                     border_color="#bfdbfe",
-                    deep_link=None,
+                    deep_link=deep_link,
                 )
             )
 

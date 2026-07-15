@@ -26,6 +26,11 @@
         <div style="font-size:12px;color:#8b93a3;padding-left:10px;border-left:1px solid #2a2f3a;margin-left:2px;">sparkpb &middot; standalone</div>
       </div>
       <div style="display:flex;align-items:center;gap:18px;">
+        {# G-RTD5 / US-5.6: deep-links out to the raw Spark UIs, matching
+           the existing US-2.2 pattern -- the dashboard complements, not
+           replaces, them. #}
+        <a href="{{ master_ui_url }}" target="_blank" rel="noopener" style="font-size:12px;color:#8b93a3;">Master UI &rarr;</a>
+        <a href="{{ driver_ui_url }}" target="_blank" rel="noopener" style="font-size:12px;color:#8b93a3;">Driver UI &rarr;</a>
         <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#8b93a3;">
           <span style="width:7px;height:7px;border-radius:50%;background:#22c55e;animation:dash-pulse 2s ease-in-out infinite;"></span>
           Live &middot; updates every ~{{ config.DASHBOARD_COLLECTOR_INTERVAL_S | int }}s
