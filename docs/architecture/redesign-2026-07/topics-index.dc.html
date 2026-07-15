@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    html,body{margin:0;background:oklch(0.985 0.004 80);-webkit-font-smoothing:antialiased}
+    *{box-sizing:border-box}
+    a{color:inherit;text-decoration:none}
+    a:hover{color:inherit}
+  </style>
+</helmet>
+
+<div style="min-height:100vh;font-family:'IBM Plex Sans',sans-serif;font-size:13px;color:oklch(0.22 0.012 260)">
+
+  <div style="height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:oklch(0.19 0.012 260);color:oklch(0.93 0.006 260);border-bottom:1px solid oklch(0.28 0.012 260)">
+    <div style="display:flex;align-items:center;gap:8px;min-width:220px">
+      <div style="width:9px;height:9px;background:{{ accent }};transform:rotate(45deg);flex-shrink:0"></div>
+      <span style="font-weight:700;font-size:14px;letter-spacing:0.2px;white-space:nowrap;flex-shrink:0">Spark Playbook</span>
+    </div>
+    <div style="font-size:12.5px;color:oklch(0.93 0.006 260);font-weight:500">Topics</div>
+    <div style="width:220px"></div>
+  </div>
+
+  <div style="max-width:980px;margin:0 auto;padding:48px 32px 80px">
+    <div style="font-size:11px;font-weight:600;letter-spacing:0.6px;color:{{ accent }};margin-bottom:6px">SPARK PLAYBOOK</div>
+    <h1 style="font-size:26px;font-weight:700;margin:0 0 6px;line-height:1.3">Topics</h1>
+    <p style="font-size:13px;color:oklch(0.48 0.012 260);margin:0 0 32px">A local PySpark learning tool &mdash; each topic pairs a concept with a live notebook and cluster.</p>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+      <sc-for list="{{ topics }}" as="topic" hint-placeholder-count="12">
+        <a href="{{ topic.href }}" style="display:flex;flex-direction:column;gap:8px;padding:16px;border:1px solid oklch(0.87 0.006 80);border-radius:6px;background:#fff" style-hover="border-color:{{ accent }};box-shadow:0 2px 10px oklch(0.15 0.01 260 / 0.08)">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;font-weight:600;color:oklch(0.55 0.012 260);letter-spacing:0.4px;white-space:nowrap">TOPIC {{ topic.n }}</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:oklch(0.6 0.012 260)">{{ topic.notebook }}</span>
+          </div>
+          <div style="font-size:14.5px;font-weight:600;line-height:1.35">{{ topic.title }}</div>
+          <div style="font-size:12px;line-height:1.55;color:oklch(0.45 0.012 260)">{{ topic.blurb }}</div>
+        </a>
+      </sc-for>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+</body>
+</html>
+
+<!--
+IMPORTANT NOTE FOR IMPLEMENTERS (added by orchestrator, not part of the original design export):
+
+The mockup's hardcoded 12-topic list (numbered 01-13, skipping 03) does NOT match the repo's
+current backlog. It's missing the three topics already built (join-strategies, bucketing, aqe)
+and includes 6 topics not yet in docs/backlog.md: DAG & Lazy Evaluation, Skew & Salting,
+Executor Tuning, Checkpointing, Serialization Formats, Fault Tolerance & Lineage. Per human
+decision on 2026-07-15, all of these are in scope for the redesign sprint as new backlog stories
+(not just a UI reskin) — requirements-analyst must reconcile this list against the full existing
++ new topic set and produce one authoritative ordering, then this page should render from
+`content/*/manifest.yaml` (existing pattern), not a hardcoded array as in the mockup.
+-->

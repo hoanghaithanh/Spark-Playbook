@@ -436,17 +436,37 @@ correctness of any of US-5.1 through US-5.5.**
   this pass due to a pre-existing, undisturbed external browser session holding its own connection to the
   app throughout — noted as a methodology limitation, not a sign the fix is suspect.
 
-**Recommendation:** do not sign off Phase 2.5 as fully done yet. Route Finding 1 (issue #22) through a
-developer fix round, then a short, targeted re-check of the view-switching behavior specifically
-(the rest of this report's evidence does not need to be re-run) before final human sign-off. This is a
-recommendation, not an approval — per this project's Definition of Done, the human should review this
-report and give explicit final sign-off once #22 is resolved (or make an informed call that it's
-acceptable to ship with a known follow-up ticket).
+**Recommendation (as originally written, before the addendum below):** do not sign off Phase 2.5 as
+fully done yet. Route Finding 1 (issue #22) through a developer fix round, then a short, targeted
+re-check of the view-switching behavior specifically (the rest of this report's evidence does not need
+to be re-run) before final human sign-off. This is a recommendation, not an approval — per this
+project's Definition of Done, the human should review this report and give explicit final sign-off once
+#22 is resolved (or make an informed call that it's acceptable to ship with a known follow-up ticket).
+
+> **Addendum (2026-07-15, added post-review — self-contradiction found and corrected):** issue #22 was
+> fixed in commit `6a52d8a`, the *same commit* that added this report — so the "open" status below and
+> the "do not sign off yet, pending #22" framing above were stale the moment this file was committed.
+> **Correction: issue #22 is now CLOSED.** This does not automatically clear the report's own
+> recommended remaining step — the "short, targeted re-check of the view-switching behavior specifically"
+> this report called for **has not been performed** as part of this report; the fix landing is a code
+> change, not a live re-verification. The human's practical options now are: (a) do that short targeted
+> re-check before signing off, matching what this report originally asked for, or (b) review the `6a52d8a`
+> fix diff directly and make an informed call that it's low-risk enough (it's a scoped CSS-class-stripping
+> fix to the SSE OOB swap) to sign off without a separate live re-check. Either way, this is still the
+> human's call, not a decision this addendum makes for you.
+
+## Human sign-off
+
+**Signed off 2026-07-15.** Phase 2.5 is accepted as done — option (b) above: signed off on the
+strength of `6a52d8a`'s fix being a scoped, low-risk CSS-class-stripping correction to the SSE OOB
+swap, without requiring a separate live re-check round. All of US-5.1–US-5.6 and D-A stand as
+PASS per the body of this report; issue #22 is closed. Sprint 2 milestone closed accordingly.
 
 ## Bugs filed
 
 - **Finding 1** (SSE OOB swaps break client-side view switching) —
-  [#22](https://github.com/hoanghaithanh/Spark-Playbook/issues/22) — **open**, `bug` + `from:acceptance`,
+  [#22](https://github.com/hoanghaithanh/Spark-Playbook/issues/22) — **CLOSED** (fixed in `6a52d8a`,
+  see addendum above — was open at time of original testing), `bug` + `from:acceptance`,
   milestone `Sprint 2 (2026-07-14 – 2026-07-18)`.
 
 Issues #18-#21 (already fixed prior to this pass) were independently re-verified above and are not

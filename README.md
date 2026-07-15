@@ -34,11 +34,23 @@ designed to be consulted *after* you've formed a hypothesis, not to explain thin
   (spawn/teardown with configurable workers/cores/memory/shuffle-partitions/AQE), and an embedded
   JupyterLab iframe wired to the spawned cluster. Full acceptance results in
   [`docs/acceptance/phase-1.md`](docs/acceptance/phase-1.md).
-- **Phase 2 — annotation engine + join strategies + bucketing + AQE.** Scoped and queued as the
-  active sprint; not yet built.
-- **Phase 2.5 — realtime monitoring dashboard.** Requirements-complete
-  ([`docs/requirements/realtime-monitoring-dashboard.md`](docs/requirements/realtime-monitoring-dashboard.md)),
-  not yet designed or built.
+- **Phase 2 — annotation engine + join strategies + bucketing + AQE.** Built, tested, and closed
+  out in Sprint 1: the self-check annotation engine, plus the join-strategies, bucketing, and AQE
+  curriculum topics.
+- **Phase 2.5 — realtime monitoring dashboard.** Built and bug-fixed. Acceptance report in
+  [`docs/acceptance/phase-2-5.md`](docs/acceptance/phase-2-5.md), pending final human sign-off
+  (all findings from the acceptance pass, including issue #22, are now resolved — see that
+  report's addendum for the corrected status).
+- **Sprint 3 — topic-page shell redesign (in progress).** A UI redesign sourced from an imported
+  Claude Design project: a unified topic-page shell (Concept/Notebook/Self-check tabs,
+  cluster-config drawer, breadcrumb topic switcher), the Phase 2.5 dashboard moving from a
+  standalone route to an in-page slide-in panel, and a dedicated Catalyst plans topic page. See
+  [`docs/requirements/topic-shell-redesign.md`](docs/requirements/topic-shell-redesign.md) and
+  [`docs/architecture/topic-shell-redesign.md`](docs/architecture/topic-shell-redesign.md).
+  Six new curriculum topics (DAG & Lazy Evaluation, Skew & Salting, Executor Tuning,
+  Checkpointing, Serialization Formats, Fault Tolerance & Lineage) are scoped alongside this in
+  [`docs/requirements/curriculum-topics-2026-07.md`](docs/requirements/curriculum-topics-2026-07.md)
+  but sequenced after the shell per a shell-first prioritization decision — not yet built.
 - **Phase 3 (streaming/Kafka) and Phase 4 (remaining curriculum topics)** are backlogged, not yet
   started.
 

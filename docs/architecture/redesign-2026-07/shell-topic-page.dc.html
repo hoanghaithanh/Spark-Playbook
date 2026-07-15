@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    html,body{margin:0;height:100%;overflow:hidden;background:#fff;-webkit-font-smoothing:antialiased}
+    *{box-sizing:border-box}
+    ::-webkit-scrollbar{width:9px;height:9px}
+    ::-webkit-scrollbar-thumb{background:oklch(0.82 0.006 80);border-radius:5px}
+    ::-webkit-scrollbar-track{background:transparent}
+    @keyframes pv-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+    @keyframes pv-spin{to{transform:rotate(360deg)}}
+    textarea:focus,button:focus{outline:none}
+  </style>
+</helmet>
+
+<div style="position:fixed;inset:0;display:flex;flex-direction:column;font-family:'IBM Plex Sans',sans-serif;font-size:13px;color:oklch(0.22 0.012 260);background:oklch(0.985 0.004 80)">
+
+  <!-- TOP BAR -->
+  <div style="height:48px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:oklch(0.19 0.012 260);color:oklch(0.93 0.006 260);border-bottom:1px solid oklch(0.28 0.012 260)">
+    <div style="display:flex;align-items:center;gap:8px;min-width:220px">
+      <div style="width:9px;height:9px;background:{{ accent }};transform:rotate(45deg);flex-shrink:0"></div>
+      <span style="font-weight:700;font-size:14px;letter-spacing:0.2px;white-space:nowrap;flex-shrink:0">Spark Playbook</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:oklch(0.65 0.01 260);position:relative">
+<a href="./Spark Playbook - Topics Index.dc.html" style="color:inherit;text-decoration:none" style-hover="color:oklch(0.93 0.006 260);text-decoration:underline">Topics</a>
+      <span style="opacity:.5">/</span>
+      <button onClick="{{ toggleBreadcrumb }}" style="display:flex;align-items:center;gap:5px;background:transparent;border:none;cursor:pointer;color:oklch(0.93 0.006 260);font-weight:500;font-size:12.5px;font-family:inherit;padding:2px 4px" style-hover="opacity:0.85">
+        Partitioning &amp; Shuffle Mechanics
+        <span style="font-size:9px;opacity:.7">&#9662;</span>
+      </button>
+      <sc-if value="{{ breadcrumbOpen }}">
+        <div onClick="{{ closeBreadcrumb }}" style="position:fixed;inset:0;z-index:29"></div>
+        <div style="position:absolute;top:28px;left:52px;min-width:260px;background:#fff;border:1px solid oklch(0.87 0.006 80);border-radius:6px;box-shadow:0 8px 24px oklch(0.15 0.01 260 / 0.25);z-index:30;overflow:hidden">
+          <sc-for list="{{ topicLinks }}" as="topic" hint-placeholder-count="2">
+            <a href="{{ topic.href }}" style="display:flex;align-items:center;gap:8px;padding:10px 14px;font-size:12.5px;color:oklch(0.22 0.012 260);text-decoration:none;{{ topic.activeStyle }}" style-hover="background:oklch(0.96 0.012 80)">
+              <span style="width:5px;height:5px;border-radius:50%;background:{{ topic.dotColor }};flex-shrink:0"></span>
+              {{ topic.label }}
+            </a>
+          </sc-for>
+        </div>
+      </sc-if>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px;min-width:220px;justify-content:flex-end">
+      <div style="display:flex;align-items:center;gap:7px;padding:4px 10px;border-radius:3px;background:oklch(0.25 0.012 260);border:1px solid oklch(0.32 0.012 260)">
+        <span style="width:7px;height:7px;border-radius:50%;background:{{ pillColor }};flex-shrink:0;{{ pillPulseStyle }}"></span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;font-weight:500;letter-spacing:0.3px;white-space:nowrap">{{ pillLabel }}</span>
+      </div>
+      <button onClick="{{ toggleMonitor }}" style="color:oklch(0.65 0.01 260);background:transparent;border:none;font-size:12.5px;cursor:pointer;font-family:inherit;padding:0" style-hover="color:oklch(0.93 0.006 260);text-decoration:underline">Cluster Monitor</button>
+    </div>
+  </div>
+
+  <!-- MAIN ROW -->
+  <div style="flex:1;display:flex;overflow:hidden;position:relative">
+
+    <!-- DRAWER BACKDROP -->
+    <sc-if value="{{ drawerOpen }}">
+      <div onClick="{{ closeDrawer }}" style="position:absolute;inset:0;background:oklch(0.15 0.01 260 / 0.32);z-index:9;cursor:default"></div>
+    </sc-if>
+
+    <!-- CLUSTER DRAWER -->
+    <div style="position:absolute;top:0;bottom:0;left:0;width:340px;background:#fff;border-right:1px solid oklch(0.87 0.006 80);box-shadow:2px 0 16px oklch(0.15 0.01 260 / 0.18);z-index:10;transform:{{ drawerTransform }};transition:transform .22s ease;display:flex;flex-direction:column">
+      <div style="height:44px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-bottom:1px solid oklch(0.87 0.006 80)">
+        <span style="font-weight:600;font-size:12.5px">Cluster Configuration</span>
+        <button onClick="{{ closeDrawer }}" style="width:22px;height:22px;border:none;background:transparent;color:oklch(0.48 0.012 260);font-size:16px;cursor:pointer;line-height:1;border-radius:3px" style-hover="background:oklch(0.95 0.012 80)">&times;</button>
+      </div>
+
+      <div style="flex:1;overflow-y:auto;padding:16px 14px;display:flex;flex-direction:column;gap:16px;{{ drawerLockStyle }}">
+
+        <div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:11.5px;color:oklch(0.48 0.012 260);font-weight:500">WORKERS</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:600">{{ workers }}</span>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button onClick="{{ decWorkers }}" style="flex:1;height:26px;border:1px solid oklch(0.85 0.006 80);background:oklch(0.97 0.005 80);border-radius:3px;cursor:pointer;font-size:14px;color:oklch(0.3 0.012 260)" style-hover="background:oklch(0.93 0.012 80)">&minus;</button>
+            <button onClick="{{ incWorkers }}" style="flex:1;height:26px;border:1px solid oklch(0.85 0.006 80);background:oklch(0.97 0.005 80);border-radius:3px;cursor:pointer;font-size:14px;color:oklch(0.3 0.012 260)" style-hover="background:oklch(0.93 0.012 80)">+</button>
+          </div>
+        </div>
+
+        <div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:11.5px;color:oklch(0.48 0.012 260);font-weight:500">CORES / WORKER</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:600">{{ cores }}</span>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button onClick="{{ decCores }}" style="flex:1;height:26px;border:1px solid oklch(0.85 0.006 80);background:oklch(0.97 0.005 80);border-radius:3px;cursor:pointer;font-size:14px;color:oklch(0.3 0.012 260)" style-hover="background:oklch(0.93 0.012 80)">&minus;</button>
+            <button onClick="{{ incCores }}" style="flex:1;height:26px;border:1px solid oklch(0.85 0.006 80);background:oklch(0.97 0.005 80);border-radius:3px;cursor:pointer;font-size:14px;color:oklch(0.3 0.012 260)" style-hover="background:oklch(0.93 0.012 80)">+</button>
+          </div>
+        </div>
+
+        <div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:11.5px;color:oklch(0.48 0.012 260);font-weight:500">MEMORY (GB)</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:600">{{ memory }}</span>
+          </div>
+          <input type="range" min="1" max="16" step="1" value="{{ memory }}" onChange="{{ setMemory }}" style="width:100%;accent-color:{{ accent }}" />
+        </div>
+
+        <div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:11.5px;color:oklch(0.48 0.012 260);font-weight:500">SHUFFLE PARTITIONS</span>
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:600">{{ shufflePartitions }}</span>
+          </div>
+          <input type="range" min="8" max="400" step="8" value="{{ shufflePartitions }}" onChange="{{ setShuffle }}" style="width:100%;accent-color:{{ accent }}" />
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;padding-top:2px">
+          <span style="font-size:11.5px;color:oklch(0.48 0.012 260);font-weight:500">ADAPTIVE QUERY EXEC. (AQE)</span>
+          <button onClick="{{ toggleAqe }}" style="width:34px;height:19px;border-radius:10px;border:none;cursor:pointer;background:{{ aqeTrackColor }};position:relative;padding:0;flex-shrink:0">
+            <span style="position:absolute;top:2px;left:{{ aqeKnobLeft }};width:15px;height:15px;border-radius:50%;background:#fff;transition:left .15s ease;box-shadow:0 1px 2px oklch(0.15 0.01 260 / 0.3)"></span>
+          </button>
+        </div>
+      </div>
+
+      <div style="flex-shrink:0;padding:14px;border-top:1px solid oklch(0.87 0.006 80);display:flex;flex-direction:column;gap:8px">
+        <sc-if value="{{ showConfirmTeardown }}">
+          <div style="display:flex;gap:6px">
+            <button onClick="{{ confirmTeardown }}" style="flex:1;height:32px;border:none;border-radius:4px;background:oklch(0.58 0.19 25);color:#fff;font-weight:600;font-size:12.5px;cursor:pointer">Confirm tear down</button>
+            <button onClick="{{ cancelTeardown }}" style="flex:1;height:32px;border:1px solid oklch(0.85 0.006 80);border-radius:4px;background:#fff;color:oklch(0.3 0.012 260);font-size:12.5px;cursor:pointer">Cancel</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{ showSpawnAction }}">
+          <button onClick="{{ spawn }}" disabled="{{ spawnDisabled }}" style="height:34px;border:none;border-radius:4px;background:{{ accent }};color:#fff;font-weight:600;font-size:12.5px;cursor:pointer;opacity:{{ spawnOpacity }}">Spawn cluster</button>
+        </sc-if>
+        <sc-if value="{{ showTeardownAction }}">
+          <button onClick="{{ requestTeardown }}" style="height:34px;border:1px solid oklch(0.58 0.19 25);border-radius:4px;background:#fff;color:oklch(0.58 0.19 25);font-weight:600;font-size:12.5px;cursor:pointer" style-hover="background:oklch(0.95 0.04 25)">Tear down cluster</button>
+        </sc-if>
+        <span style="font-size:11px;color:oklch(0.62 0.01 260);text-align:center">{{ paramsLockedNote }}</span>
+      </div>
+    </div>
+
+    <!-- LEFT PANE -->
+    <div style="width:38%;flex-shrink:0;display:flex;flex-direction:column;background:#fff;border-right:1px solid oklch(0.87 0.006 80);overflow:hidden">
+      <div style="height:44px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 8px 0 16px;border-bottom:1px solid oklch(0.87 0.006 80)">
+        <div style="display:flex;gap:4px">
+          <button onClick="{{ setTabConcept }}" style="height:30px;padding:0 12px;border:none;background:transparent;font-size:12.5px;font-weight:500;cursor:pointer;color:{{ conceptTabColor }};border-bottom:2px solid {{ conceptTabBorder }}">Concept</button>
+          <button onClick="{{ setTabNotebook }}" style="height:30px;padding:0 12px;border:none;background:transparent;font-size:12.5px;font-weight:500;cursor:pointer;color:{{ notebookTabColor }};border-bottom:2px solid {{ notebookTabBorder }}">Notebook</button>
+          <button onClick="{{ setTabSelfcheck }}" style="height:30px;padding:0 12px;border:none;background:transparent;font-size:12.5px;font-weight:500;cursor:pointer;color:{{ selfcheckTabColor }};border-bottom:2px solid {{ selfcheckTabBorder }}">Self-check</button>
+        </div>
+        <button onClick="{{ toggleDrawer }}" title="Cluster configuration" style="width:28px;height:28px;border:1px solid oklch(0.85 0.006 80);background:#fff;border-radius:4px;cursor:pointer;font-size:14px;color:oklch(0.4 0.012 260);flex-shrink:0" style-hover="background:oklch(0.95 0.012 80)">&#9881;</button>
+      </div>
+
+      <div style="flex:1;overflow-y:auto;overflow-x:hidden">
+
+        <!-- CONCEPT TAB -->
+        <sc-if value="{{ isConceptTab }}">
+          <div style="max-width:65ch;padding:32px 36px 60px">
+            <div style="font-size:11px;font-weight:600;letter-spacing:0.6px;color:{{ accent }};margin-bottom:6px">TOPIC 04</div>
+            <h1 style="font-size:22px;font-weight:700;margin:0 0 20px;line-height:1.3">Partitioning &amp; Shuffle Mechanics</h1>
+
+            <h2 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:oklch(0.48 0.012 260);margin:28px 0 10px">What it is</h2>
+            <p style="line-height:1.75;color:oklch(0.25 0.012 260);margin:0 0 12px">
+              (per-topic concept text — see topics-content-spec.md)
+            </p>
+
+            <h2 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:oklch(0.48 0.012 260);margin:28px 0 10px">Why it matters</h2>
+            <p style="line-height:1.75;color:oklch(0.25 0.012 260);margin:0 0 12px">
+              (per-topic concept text — see topics-content-spec.md)
+            </p>
+
+            <h2 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:oklch(0.48 0.012 260);margin:28px 0 10px">What to look for</h2>
+            <p style="line-height:1.75;color:oklch(0.25 0.012 260);margin:0 0 14px">
+              With the cluster running, cross-check these while the notebook cells execute:
+            </p>
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <sc-for list="{{ checklistItems }}" as="item" hint-placeholder-count="3">
+                <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid oklch(0.9 0.006 80);border-radius:5px;margin-bottom:6px">
+                  <span style="width:14px;height:14px;border:1.5px solid oklch(0.7 0.01 260);border-radius:3px;flex-shrink:0"></span>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:12.5px;font-weight:500">{{ item.label }}</div>
+                    <div style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:oklch(0.48 0.012 260)">{{ item.url }}</div>
+                  </div>
+                  <button onClick="{{ item.copy }}" style="font-family:'IBM Plex Mono',monospace;font-size:11px;padding:4px 8px;border:1px solid oklch(0.85 0.006 80);background:oklch(0.97 0.005 80);border-radius:3px;cursor:pointer;color:oklch(0.35 0.012 260);flex-shrink:0" style-hover="background:oklch(0.93 0.012 80)">{{ item.copyLabel }}</button>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- NOTEBOOK TAB -->
+        <sc-if value="{{ isNotebookTab }}">
+          <div style="padding:28px 32px 60px">
+            <h2 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:oklch(0.48 0.012 260);margin:0 0 16px">Walkthrough steps</h2>
+            <div style="display:flex;flex-direction:column;gap:0">
+              <sc-for list="{{ notebookSteps }}" as="step" hint-placeholder-count="4">
+                <div style="display:flex;gap:12px;padding:14px 0;border-bottom:1px solid oklch(0.92 0.006 80)">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#fff;background:oklch(0.4 0.012 260);width:20px;height:20px;border-radius:3px;display:flex;align-items:center;justify-content:center;flex-shrink:0">{{ step.n }}</div>
+                  <div style="flex:1">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+                      <span style="font-size:12.5px;font-weight:600">{{ step.title }}</span>
+                      <span style="font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:oklch(0.48 0.012 260);background:oklch(0.95 0.012 80);padding:1px 6px;border-radius:3px">Cell {{ step.cell }}</span>
+                    </div>
+                    <div style="font-size:12px;line-height:1.6;color:oklch(0.42 0.012 260)">{{ step.detail }}</div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- SELF-CHECK TAB -->
+        <sc-if value="{{ isSelfcheckTab }}">
+          <div style="padding:28px 32px 60px;max-width:60ch">
+            <h2 style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;color:oklch(0.48 0.012 260);margin:0 0 6px">Hypothesis first</h2>
+            <p style="font-size:12.5px;line-height:1.7;color:oklch(0.42 0.012 260);margin:0 0 14px">(per-topic hypothesis prompt — see topics-content-spec.md)</p>
+            <textarea value="{{ hypothesis }}" onChange="{{ setHypothesis }}" placeholder="Write your expectation here before revealing..." style="width:100%;min-height:110px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;line-height:1.6;padding:12px;border:1px solid oklch(0.85 0.006 80);border-radius:5px;resize:vertical;color:oklch(0.22 0.012 260)"></textarea>
+            <button onClick="{{ reveal }}" disabled="{{ revealDisabled }}" style="margin-top:12px;height:34px;padding:0 16px;border:none;border-radius:4px;background:{{ accent }};color:#fff;font-weight:600;font-size:12.5px;cursor:pointer;opacity:{{ revealOpacity }}">Reveal self-check</button>
+
+            <sc-if value="{{ revealed }}">
+              <div style="margin-top:22px;display:flex;flex-direction:column;gap:10px">
+                <div style="border:1px solid oklch(0.9 0.006 80);border-radius:5px;overflow:hidden">
+                  <div style="padding:7px 12px;background:oklch(0.97 0.005 80);font-size:11px;font-weight:600;color:oklch(0.42 0.012 260);border-bottom:1px solid oklch(0.9 0.006 80)">YOUR PREDICTION</div>
+                  <div style="padding:12px;font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:1.6;color:oklch(0.28 0.012 260);white-space:pre-wrap">{{ hypothesis }}</div>
+                </div>
+                <div style="border:1px solid {{ accent }};border-radius:5px;overflow:hidden">
+                  <div style="padding:7px 12px;background:oklch(0.96 0.03 55);font-size:11px;font-weight:600;color:{{ accentDark }};border-bottom:1px solid oklch(0.9 0.05 55)">ACTUAL ANNOTATION OUTPUT</div>
+                  <div style="padding:12px;font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:1.6;color:oklch(0.28 0.012 260);white-space:pre-wrap">(this is the point of divergence from mockups: real annotation output must come from the Phase 2 annotation engine reading a live plan.explain() dump — NOT hardcoded text as shown in the mockup — see G3/G7 in PLAN.md)</div>
+                </div>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+      </div>
+    </div>
+
+    <!-- CLUSTER MONITOR PANEL (slides in from the right; embeds the Spark Dashboard component in-place) -->
+    <sc-if value="{{ monitorOpen }}">
+      <div onClick="{{ closeMonitor }}" style="position:absolute;inset:0;background:oklch(0.15 0.01 260 / 0.32);z-index:19"></div>
+    </sc-if>
+    <div style="position:absolute;top:0;bottom:0;right:0;width:70%;max-width:1040px;background:#fff;border-left:1px solid oklch(0.87 0.006 80);box-shadow:-2px 0 16px oklch(0.15 0.01 260 / 0.18);z-index:20;transform:{{ monitorTransform }};transition:transform .22s ease;display:flex;flex-direction:column">
+      <div style="height:40px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 14px;background:oklch(0.19 0.012 260);border-bottom:1px solid oklch(0.28 0.012 260)">
+        <span style="font-size:12px;font-weight:600;color:oklch(0.93 0.006 260);letter-spacing:0.2px">Cluster Monitor</span>
+        <button onClick="{{ closeMonitor }}" style="width:22px;height:22px;border:none;background:transparent;color:oklch(0.65 0.01 260);font-size:16px;cursor:pointer;line-height:1;border-radius:3px" style-hover="background:oklch(0.28 0.012 260);color:#fff">&times;</button>
+      </div>
+      <div style="flex:1;overflow-y:auto;overflow-x:hidden">
+        <sc-if value="{{ monitorOpen }}">
+          <dc-import name="Spark Dashboard" hint-size="100%,100%" style="width:100%;display:block"></dc-import>
+        </sc-if>
+      </div>
+    </div>
+
+    <!-- RIGHT PANE: cluster/notebook state machine (idle / spawning / error / ready) -->
+    <div style="flex:1;overflow:hidden;position:relative;background:{{ rightPaneBg }};display:flex;flex-direction:column">
+
+      <sc-if value="{{ isIdle }}">
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px">
+          <div style="width:44px;height:44px;border:2px solid oklch(0.75 0.008 260);border-radius:6px"></div>
+          <div style="text-align:center">
+            <div style="font-size:14px;font-weight:600;color:oklch(0.32 0.012 260);margin-bottom:4px">No cluster running</div>
+            <div style="font-size:12.5px;color:oklch(0.55 0.012 260)">Spawn a cluster to launch JupyterLab for this notebook.</div>
+          </div>
+          <button onClick="{{ spawn }}" style="margin-top:6px;height:36px;padding:0 20px;border:none;border-radius:4px;background:{{ accent }};color:#fff;font-weight:600;font-size:13px;cursor:pointer">Spawn cluster</button>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isSpawning }}">
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px">
+          <div style="width:32px;height:32px;border:3px solid oklch(0.9 0.03 75);border-top-color:{{ accent }};border-radius:50%;animation:pv-spin .8s linear infinite"></div>
+          <div style="text-align:center">
+            <div style="font-size:14px;font-weight:600;color:oklch(0.32 0.012 260);margin-bottom:4px">Provisioning {{ workers }} workers&hellip;</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:oklch(0.55 0.012 260)">{{ cores }} cores &middot; {{ memory }}GB / worker &middot; shuffle.partitions={{ shufflePartitions }}</div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isError }}">
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px">
+          <div style="width:44px;height:44px;border:2px solid oklch(0.58 0.19 25);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;color:oklch(0.58 0.19 25);font-weight:700">!</div>
+          <div style="text-align:center">
+            <div style="font-size:14px;font-weight:600;color:oklch(0.32 0.012 260);margin-bottom:4px">Cluster failed to start</div>
+            <div style="font-size:12.5px;color:oklch(0.55 0.012 260);max-width:38ch">Worker allocation timed out &#8212; requested {{ memory }}GB &times; {{ workers }} exceeds available host memory.</div>
+          </div>
+          <button onClick="{{ spawn }}" style="margin-top:6px;height:36px;padding:0 20px;border:none;border-radius:4px;background:{{ accent }};color:#fff;font-weight:600;font-size:13px;cursor:pointer">Retry</button>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isReady }}">
+        <div style="height:34px;flex-shrink:0;display:flex;align-items:center;gap:10px;padding:0 12px;background:oklch(0.97 0.005 80);border-bottom:1px solid oklch(0.87 0.006 80)">
+          <span style="width:6px;height:6px;border-radius:50%;background:oklch(0.6 0.13 150)"></span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;font-weight:500">(embedded JupyterLab iframe goes here, per existing Phase 1 design — mockup shows static fake cells for preview purposes only)</span>
+        </div>
+      </sc-if>
+
+    </div>
+  </div>
+</div>
+
+</x-dc>
+</body>
+</html>
+
+<!--
+IMPORTANT NOTE FOR IMPLEMENTERS (added by orchestrator, not part of the original design export):
+
+This file is the canonical shell shared by ALL topic pages in the redesign — every one of the
+11 other topic mockups in this project (Caching & Persistence, Checkpointing, DAG & Lazy
+Evaluation, Executor Tuning, Fault Tolerance & Lineage, Memory Management, Serialization
+Formats, Skew & Salting, Spark SQL Catalyst, Structured Streaming, Window Functions) is a
+byte-for-byte copy of this same markup/component code, differing only in:
+  1. the TOPIC N / title / breadcrumb label,
+  2. the Concept tab's "What it is" / "Why it matters" / "What to look for" copy + port checklist,
+  3. the Notebook tab's walkthrough steps + notebook code cells,
+  4. the Self-check tab's hypothesis prompt + (mocked) "actual annotation output" text.
+
+Per-topic content differences are captured in `topics-content-spec.md` in this same directory —
+implement ONE shell component and drive it from `content/<topic>/manifest.yaml` +
+`concept.md` (per the existing pattern in PLAN.md section 3), not 12 copy-pasted templates.
+
+The mockup fakes several things that must be wired to real data before this ships:
+  - The "Reveal self-check" panel shows hardcoded fake plan-output text. Real behavior is the
+    Phase 2 annotation engine (`app/annotation/engine.py`) reading the learner's own
+    `playbook.checkpoint()` dump — see G3/G7 in PLAN.md. Never hardcode annotation text.
+  - `spawn()` uses `setTimeout` + a fake `memory * workers > 48` failure rule. Real behavior is
+    the existing Phase 1 lifecycle (`app/lifecycle/manager.py`), including the actual
+    `RESOURCE_CEILING_GB` check (32GB, not 48 — see PLAN.md section 2's "Implemented value" note).
+  - The "Notebook" tab's fake `notebookCells` preview should NOT replace the real embedded
+    JupyterLab iframe (Phase 1, R3) — the mockup's static cell preview appears to be a design
+    placeholder for what the Notebook tab shows before a cluster is spawned, not a replacement
+    for the live iframe once `isReady`.
+  - The Cluster Monitor slide-in panel embeds "Spark Dashboard" (see dashboard-panel.dc.html) —
+    this is a UX placement change from Phase 2.5's standalone `/dashboard` route. Needs an
+    explicit architecture decision on whether `/dashboard` remains reachable directly or becomes
+    slide-in-only, and how the existing SSE stream (`/dashboard/stream`) mounts into a panel
+    rather than a full page.
+-->

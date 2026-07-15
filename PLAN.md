@@ -214,7 +214,7 @@ resolve to `spark-driver` — no host IPs anywhere inside the cluster.
 | `worker_cores` | 2 | 1–4 | `SPARK_WORKER_CORES` per worker |
 | `worker_memory_gb` | 4 | 1–8 | `SPARK_WORKER_MEMORY` per worker |
 | `driver_memory_gb` | 2 | fixed | `spark.driver.memory` |
-| `shuffle_partitions` | 200 | any positive int | `spark.sql.shuffle.partitions` |
+| `shuffle_partitions` | 200 | any positive int (**UI range locked to 1–300 as of 2026-07-15 in the topic-page shell redesign** — see `docs/requirements/topic-shell-redesign.md` US-SH2; this row still governs the underlying config semantics) | `spark.sql.shuffle.partitions` |
 | `aqe_enabled` | false | on/off | `spark.sql.adaptive.enabled` |
 | `include_kafka` | false | bool (US-3.1) | conditionally renders the `kafka` service |
 | `project_name` | `sparkpb` | fixed | compose `-p` project (single-slot) |
@@ -529,7 +529,9 @@ cluster-wide diagnostic page — complementary to the raw Spark UI (`:8080`/`:40
 engine, not a replacement. See `docs/requirements/realtime-monitoring-dashboard.md` (US-5.1–5.6) and the design
 ADR `docs/architecture/realtime-monitoring-dashboard.md` (D-A–D-E) for the resolved decisions.
 
-- New `app/monitoring/` module + standalone `/dashboard` page (D-E): overview node grid, job-detail stage
+- New `app/monitoring/` module + standalone `/dashboard` page (D-E, **superseded 2026-07-15** — the
+  standalone route is retired in favor of a Cluster Monitor slide-in panel embedded in every topic
+  page; see `docs/architecture/topic-shell-redesign.md` Decision B and GitHub issue #23): overview node grid, job-detail stage
   timeline + partition table, node-detail sparklines. No coupling into topic pages or the cluster panel; deep-links
   out to the real Spark UI (US-5.6, G-RTD5).
 - **Live per-node CPU/RAM/disk/net** (master, workers, **and driver**) from **Docker directly** — one

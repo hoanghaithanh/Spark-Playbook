@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@font-face{font-family:'Inter';src:local('Inter');}
+body{margin:0;background:#f4f5f7;font-family:'Inter',Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;}
+a{color:#2563eb;text-decoration:none;}
+a:hover{color:#1d4ed8;text-decoration:underline;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.45;}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;flex-direction:column;color:#1a1d23;">
+
+  <!-- Top bar -->
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 28px;background:#12151c;color:#fff;">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div style="width:28px;height:28px;border-radius:7px;background:linear-gradient(135deg,#f97316,#ef4444);flex:none;"></div>
+      <div style="font-size:16px;font-weight:600;letter-spacing:-0.01em;">Spark Cluster Monitor</div>
+      <div style="font-size:12px;color:#8b93a3;padding-left:10px;border-left:1px solid #2a2f3a;margin-left:2px;">prod-cluster-01 &middot; standalone</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:18px;">
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#8b93a3;">
+        <span style="width:7px;height:7px;border-radius:50%;background:#22c55e;animation:pulse 2s ease-in-out infinite;"></span>
+        Live &middot; updates every 2s
+      </div>
+      <div style="font-size:12px;color:#8b93a3;">{{ nowLabel }}</div>
+    </div>
+  </div>
+
+  <!-- OVERVIEW view: job summary strip + node grid -->
+  <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+    <!-- alert banner, job summary strip, node cards with CPU/RAM/disk/net/GC — see full export -->
+  </sc-if>
+
+  <!-- JOB DETAIL view: stage timeline, bottleneck flag cards, per-node partition table -->
+  <sc-if value="{{ isJobDetail }}" hint-placeholder-val="{{ false }}">
+    <!-- see full export -->
+  </sc-if>
+
+  <!-- NODE DETAIL view: CPU/RAM/GC/IO tiles, CPU/RAM history bars, per-node partition table -->
+  <sc-if value="{{ isNodeDetail }}" hint-placeholder-val="{{ false }}">
+    <!-- see full export -->
+  </sc-if>
+</div>
+
+</x-dc>
+</body>
+</html>
+
+<!--
+IMPORTANT NOTE FOR IMPLEMENTERS (added by orchestrator, not part of the original design export):
+
+This is a TRIMMED reference — the full markup for the Overview / Job Detail / Node Detail views
+is functionally identical in structure and content to the ALREADY-BUILT Phase 2.5 dashboard
+(app/monitoring/, /dashboard, /dashboard/stream — see docs/architecture/realtime-monitoring-dashboard.md
+and docs/acceptance/phase-2-5.md, both accepted 2026-07-15 pending human sign-off). Compare this
+mockup's node-card fields (CPU/RAM/disk I/O/net I/O/GC time, MASTER badge, flagged/skew reasoning)
+and job-detail fields (stage timeline, bottleneck flag cards with "Suggestion:" lines, partition
+table with SKEW badges) against the existing implementation before treating this as new scope —
+the real content difference to resolve is:
+
+  1. The mockup's "Suggestion:" lines on bottleneck cards VIOLATE the already-decided D-A
+     constraint (PLAN.md, "G3 signal, not conclusions") — the existing implementation already
+     strips these per that decision. Do not reintroduce them.
+  2. Placement is the actual redesign: this component moves from a standalone `/dashboard` route
+     (Phase 2.5, D-E) into a slide-in panel embedded inside every topic page via
+     `<dc-import name="Spark Dashboard">` (see shell-topic-page.dc.html). This is a genuine
+     integration change needing an architecture decision on:
+       - does `/dashboard` remain independently reachable, or does the panel become the only entry point?
+       - how does the existing SSE collector (`/dashboard/stream`) mount into an off-canvas panel
+         that can be closed/reopened without restarting the stream each time?
+     This maps to existing backlog item #13 ("UI placement/integration with existing cluster
+     panel, topic pages, and deep links into the real Spark UI") — treat this mockup as the
+     concrete design answer to that already-scoped story, not new scope.
+  3. `prod-cluster-01` / fake job data (`daily_events_aggregation`, `worker-2` skew) in the
+     mockup's script block is placeholder data for the design tool preview only — the real
+     component sources everything from the existing `docker stats` collector + Spark stages REST
+     API per D-C/D-D, already implemented.
+-->
