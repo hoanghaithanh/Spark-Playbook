@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ topic.title }} — Spark Playbook</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="/static/htmx.min.js"></script>
+</head>
+<body class="shell-body">
+  <div class="shell-frame">
+
+    {% include "fragments/_top_bar.html" %}
+
+    <div class="shell-main">
+
+      {# CLUSTER DRAWER (US-SH2) — slides from the left over a dimmed
+         backdrop; contains the relocated Phase 1 cluster control panel
+         (worker/cores/memory/shuffle/AQE + spawn/teardown), functionally
+         unchanged, just relocated (Decision C). Closed by default. #}
+      <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
+      <div id="cluster-drawer" class="cluster-drawer">
+        <div class="drawer-header">
+          <span class="drawer-title">Cluster Configuration</span>
+          <button type="button" id="drawer-close" class="icon-btn" aria-label="Close">&times;</button>
+        </div>
+        {% include "fragments/_cluster_drawer.html" %}
+      </div>
+
+      {# LEFT PANE — Concept / Notebook / Self-check tabs (US-SH1/G-SH2),
+         all three rendered server-side; tab switching is pure client-side
+         show/hide (Decision C), no round-trip. #}
+      <div class="left-pane">
+        <div class="tab-strip">
+          <div class="tabs">
+            <button type="button" class="tab-btn active" data-tab="concept">Concept</button>
+            <button type="button" class="tab-btn" data-tab="notebook">Notebook</button>
+            <button type="button" class="tab-btn" data-tab="selfcheck">Self-check</button>
+          </div>
+          <button type="button" id="drawer-open" class="icon-btn" title="Cluster configuration">&#9881;</button>
+        </div>
+
+        <div class="tab-body">
+
+          <div class="tab-panel active" data-tab-panel="concept">
+            <div class="concept-eyebrow">TOPIC {{ '%02d' | format(topic.order) }}</div>
+            <h1 class="concept-title">{{ topic.title }}</h1>
+            <section class="concept">
+              {{ concept_html | safe }}
+            </section>
+          </div>
+
+          <div class="tab-panel" data-tab-panel="notebook">
+            <h2 class="section-heading">Walkthrough steps</h2>
+            {% if walkthrough_steps %}
+            <div class="walkthrough-steps">
+              {% for step in walkthrough_steps %}
+              <div class="walkthrough-step">
+                <div class="step-number">{{ step.number }}</div>
+                <div class="step-body">
+                  <div class="step-title-row">
+                    <span class="step-title">{{ step.title }}</span>
+                    <span class="step-cell-badge">Cell {{ step.cell }}</span>
+                  </div>
+                  {% if step.detail %}
+                  <div class="step-detail">{{ step.detail }}</div>
+                  {% endif %}
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+            {% else %}
+            <p class="annotation-hint">No numbered walkthrough steps found in this topic's notebook.</p>
+            {% endif %}
+            <p class="notebook-note">
+              <code>content/{{ topic.id }}/{{ topic.notebook_path.name }}</code> —
+              once a cluster is READY, the real embedded JupyterLab for this notebook
+              appears in the pane on the right.
+            </p>
+          </div>
+
+          <div class="tab-panel" data-tab-panel="selfcheck">
+            <h2 class="section-heading">Self-check (annotation engine)</h2>
+            {% include "fragments/annotation_panel.html" %}
+          </div>
+
+        </div>
+      </div>
+
+      {# RIGHT PANE — cluster/notebook state machine (idle/spawning/error/
+         ready), server-driven off the existing lifecycle manager (Decision
+         C); no new state representation. #}
+      {% include "fragments/_cluster_right_pane.html" %}
+
+    </div>
+  </div>
+
+  <script src="/static/shell.js"></script>
+</body>
+</html>

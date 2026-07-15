@@ -1,0 +1,38 @@
+<div class="top-bar">
+  <div class="top-bar-brand">
+    <span class="brand-mark"></span>
+    <span class="brand-name">Spark Playbook</span>
+  </div>
+
+  <div class="breadcrumb">
+    <a href="/" class="breadcrumb-topics">Topics</a>
+    <span class="breadcrumb-sep">/</span>
+    <button type="button" id="breadcrumb-toggle" class="breadcrumb-toggle" aria-haspopup="true" aria-expanded="false">
+      {{ topic.title }}
+      <span class="breadcrumb-caret">&#9662;</span>
+    </button>
+    {# US-SH3: dropdown lists every topic from content/*/manifest.yaml
+       (loader.list_topics()), current one visually distinguished. Plain
+       <a> full navigation -- switching topics is stateless w.r.t. the
+       single-slot cluster, so it never tears one down as a side effect
+       (Decision C). #}
+    <div id="breadcrumb-menu" class="breadcrumb-menu" hidden>
+      {% for t in all_topics %}
+      <a href="/topics/{{ t.id }}" class="breadcrumb-item {{ 'current' if t.id == topic.id else '' }}">
+        <span class="breadcrumb-dot"></span>
+        {{ t.title }}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="top-bar-right">
+    {% include "fragments/_state_pill.html" %}
+    {# US-SH4: the Cluster Monitor is a UI element in this shell (relocated
+       from base.html's nav link); wiring it into an in-page SSE slide-in
+       panel and retiring the standalone /dashboard route is out of scope
+       for this task -- tracked separately (GitHub issue #23). Reuses the
+       existing, unchanged /dashboard route. #}
+    <a href="/dashboard" class="monitor-link">Cluster Monitor</a>
+  </div>
+</div>

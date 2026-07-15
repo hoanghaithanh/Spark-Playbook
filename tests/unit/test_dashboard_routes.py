@@ -19,10 +19,20 @@ attribute — is never touched by the swap, only its children.
 """
 from __future__ import annotations
 
+import asyncio
+
+import pytest
 from fastapi.templating import Jinja2Templates
 
 from app import config
-from app.monitoring.model import Snapshot
+from app.lifecycle.manager import ClusterState, manager
+from app.lifecycle.renderer import ClusterParams
+from app.monitoring import docker_stats
+from app.monitoring.collector import DashboardCollector
+from app.monitoring.docker_stats import ContainerStat
+from app.monitoring.model import JobSummary, Snapshot
+from app.spark_api import app_client
+from app.web.routes.dashboard import _render_oob_payload
 
 templates = Jinja2Templates(directory=str(config.WEB_TEMPLATES_DIR))
 templates.env.globals["config"] = config
@@ -30,6 +40,24 @@ templates.env.globals["config"] = config
 
 def _idle_snapshot() -> Snapshot:
     return Snapshot(cluster_active=False, has_job=False)
+
+
+def _snapshot_with_job(app_id: str, stage_label: str, elapsed: str) -> Snapshot:
+    return Snapshot(
+        cluster_active=True,
+        has_job=True,
+        job=JobSummary(
+            name=app_id,
+            app_id=app_id,
+            status_label="Completed",
+            status_bg="#f0fdf4",
+            status_color="#16a34a",
+            stage_label=stage_label,
+            stage_name="count at NativeMethodAccessorImpl.java:0",
+            elapsed=elapsed,
+            eta_label="~0s",
+        ),
+    )
 
 
 class TestOobFragmentsPreserveContainerClass:
@@ -94,3 +122,116 @@ class TestPageDefinesTheClassesTheFragmentsMustNotClobber:
             )
             assert f'id="{container_id}"' in html
             assert "class=" not in html.split(f'id="{container_id}"')[1].split(">")[0]
+
+
+class TestJobDetailOobReflectsEachSnapshot:
+    """Regression coverage for issue #24 — the Job Detail view froze on the
+    first job of a session and never updated to later jobs.
+
+    Root cause (confirmed by live reproduction against a real cluster, not
+    just code reading): `config.DRIVER_APP_UI_URL` / `app_client.py` were
+    hardcoded to `:4040` only. A learner switching topic notebooks without
+    shutting down the prior Jupyter kernel leaves an earlier job's
+    SparkContext alive holding `:4040`; Spark silently rebinds the next
+    still-alive SparkContext's UI to `:4041`. The dashboard kept re-querying
+    `:4040` forever, so it stayed locked onto whichever application first
+    grabbed that port — even after a much larger, different job was running
+    elsewhere. This was NOT an SSE/OOB delivery bug (issue #22's fix, which
+    made the OOB payload swap `innerHTML` every cycle, was already correct
+    and confirmed working via a live stream capture); the OOB payload was
+    being faithfully regenerated every cycle from REST data that itself
+    never advanced.
+
+    These tests guard the two halves of the fix directly: (1) the rendered
+    `#job-detail-content` OOB fragment is a genuine function of the
+    snapshot's job data (would have failed if the template/route cached or
+    otherwise failed to re-derive content per snapshot), and (2)
+    `app_client.resolve_current_app()` actually follows the most-recently
+    started application across `DRIVER_APP_UI_PORTS` rather than being stuck
+    on a fixed port (would have failed against the pre-fix `fetch_current_app_id()`,
+    which only ever looked at `:4040`)."""
+
+    def test_rendered_job_detail_content_differs_across_snapshots_with_different_jobs(self):
+        first = _snapshot_with_job("app-20260715183750-0001", "Stage 8 / 8", "14s")
+        second = _snapshot_with_job("app-20260715183826-0002", "Stage 3 / 6", "58s")
+
+        html_first = templates.get_template("dashboard/fragments/job_detail_oob.html").render(
+            {"snapshot": first}
+        )
+        html_second = templates.get_template("dashboard/fragments/job_detail_oob.html").render(
+            {"snapshot": second}
+        )
+
+        assert "app-20260715183750-0001" in html_first
+        assert "app-20260715183826-0002" not in html_first
+        assert "app-20260715183826-0002" in html_second
+        assert "app-20260715183750-0001" not in html_second
+        assert html_first != html_second
+
+    def test_full_oob_payload_reflects_a_newly_resolved_app_not_a_stale_one(self):
+        """The route-level entry point (`_render_oob_payload`, what
+        `/dashboard/stream` actually sends every SSE tick) must not itself
+        introduce any caching that the fragment-level test above wouldn't
+        catch."""
+        first = _snapshot_with_job("app-old", "Stage 8 / 8", "14s")
+        second = _snapshot_with_job("app-new-and-much-larger", "Stage 1 / 40", "2s")
+
+        payload_first = _render_oob_payload(request=None, snapshot=first)
+        payload_second = _render_oob_payload(request=None, snapshot=second)
+
+        assert "app-old" in payload_first
+        assert "app-new-and-much-larger" in payload_second
+        assert "app-old" not in payload_second
+
+
+class TestResolveCurrentAppFollowsTheMostRecentJob:
+    """Issue #24: `collector.collect_once()` must resolve the current
+    application via `app_client.resolve_current_app()` (which probes every
+    `DRIVER_APP_UI_PORTS` entry and follows the most recently started
+    running app) rather than a fixed-port lookup."""
+
+    @pytest.fixture(autouse=True)
+    def _fast_cadence(self, monkeypatch):
+        monkeypatch.setattr(config, "DASHBOARD_COLLECTOR_INTERVAL_S", 0.01)
+
+    async def _fake_sample(self, cpu_limits, timeout_s=3.0):
+        return [
+            ContainerStat(
+                name="spark-master",
+                cpu_pct=10.0,
+                mem_used_bytes=100 * 1024**2,
+                mem_limit_bytes=1024**3,
+                net_rx_bytes=0,
+                net_tx_bytes=0,
+                block_read_bytes=0,
+                block_write_bytes=0,
+            )
+        ]
+
+    @pytest.mark.asyncio
+    async def test_collect_once_reports_whichever_app_resolve_current_app_returns(self, monkeypatch):
+        """Simulates a second, later-started application landing on a
+        non-default port (:4041) while an earlier one (:4040) is still
+        alive -- exactly the scenario reproduced live against a real
+        cluster. `collect_once()` must surface the newer one, because
+        that's what `resolve_current_app()` (tested directly in
+        test_app_client.py) is defined to return."""
+        monkeypatch.setattr(docker_stats, "sample", self._fake_sample)
+        newer_app = app_client.AppRef(app_id="app-newer-on-4041", base_url="http://localhost:4041")
+        monkeypatch.setattr(app_client, "resolve_current_app", lambda timeout_s=2.0: newer_app)
+        monkeypatch.setattr(app_client, "fetch_executors", lambda app, timeout_s=2.0: [])
+        monkeypatch.setattr(
+            app_client,
+            "fetch_stages",
+            lambda app, timeout_s=2.0: [
+                {"stageId": 5, "attemptId": 0, "status": "ACTIVE", "numTasks": 4, "executorRunTime": 1000}
+            ],
+        )
+        monkeypatch.setattr(app_client, "fetch_task_list", lambda *a, **kw: [])
+        manager.state = ClusterState.READY
+        manager.params = ClusterParams(worker_count=1, worker_cores=1, worker_memory_gb=1)
+
+        snapshot = await DashboardCollector().collect_once()
+
+        assert snapshot.job is not None
+        assert snapshot.job.app_id == "app-newer-on-4041"

@@ -20,6 +20,7 @@ labels + evidence (US-2.1), consistent with G3.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any, Dict, List, Optional
 
@@ -53,40 +54,48 @@ def _latest_checkpoint(topic_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def _stale_checkpoint_warning(checkpoint_data: Dict[str, Any]) -> Optional[str]:
+async def _stale_checkpoint_warning(checkpoint_data: Dict[str, Any]) -> Optional[str]:
     """Issue #16: a checkpoint's app_id is never checked against what's
-    actually live at :4040 before Reveal renders it -- so a checkpoint from a
-    torn-down-and-respawned (or simply much older) session renders a fully
-    confident, fully-labeled plan with nothing to indicate it's stale (the
-    starkest repro: zero live applications, yet Reveal still showed a
-    2-hour-old plan as if current). Returns None if the checkpoint's app_id
-    is known to the driver currently answering at :4040 (covers the
-    legitimate "job just completed but driver isn't torn down yet" case --
-    `fetch_all_app_ids()` includes completed attempts, not just running
-    ones), or a clear warning string otherwise."""
+    actually live on any driver UI port before Reveal renders it -- so a
+    checkpoint from a torn-down-and-respawned (or simply much older) session
+    renders a fully confident, fully-labeled plan with nothing to indicate
+    it's stale (the starkest repro: zero live applications, yet Reveal still
+    showed a 2-hour-old plan as if current). Returns None if the checkpoint's
+    app_id is known to any driver currently answering across
+    `DRIVER_APP_UI_PORTS` (covers the legitimate "job just completed but
+    driver isn't torn down yet" case -- `fetch_all_app_ids()` includes
+    completed attempts, not just running ones), or a clear warning string
+    otherwise.
+
+    Issue #24 follow-up: `fetch_all_app_ids()` now probes multiple ports
+    sequentially (blocking network I/O per port), so it's offloaded via
+    `asyncio.to_thread` -- called synchronously inside this `async def`
+    route it would freeze the entire single-process event loop (including
+    the live SSE dashboard stream) for the duration of every probe, same bug
+    class as issue #19."""
     checkpoint_app_id = checkpoint_data.get("app_id")
-    known_ids = app_client.fetch_all_app_ids()
+    known_ids = await asyncio.to_thread(app_client.fetch_all_app_ids, timeout_s=2.0)
 
     if known_ids is None:
         return (
-            "No Spark application is currently reachable at :4040, so this checkpoint's application "
-            f"({checkpoint_app_id}) cannot be confirmed as the current session -- it may be from a prior, "
-            "already-torn-down cluster. Re-run playbook.checkpoint(df, topic=...) against a live session "
-            "before trusting this plan."
+            "No Spark application is currently reachable on any driver UI port (4040-4042), so this "
+            f"checkpoint's application ({checkpoint_app_id}) cannot be confirmed as the current session -- "
+            "it may be from a prior, already-torn-down cluster. Re-run playbook.checkpoint(df, topic=...) "
+            "against a live session before trusting this plan."
         )
     if checkpoint_app_id not in known_ids:
         return (
-            f"This checkpoint's application ({checkpoint_app_id}) is not known to the driver currently "
-            "running at :4040 -- it's from a different or prior session, not the one you're looking at now. "
-            "Re-run playbook.checkpoint(df, topic=...) against the current session."
+            f"This checkpoint's application ({checkpoint_app_id}) is not known to any driver currently "
+            "running on a driver UI port (4040-4042) -- it's from a different or prior session, not the one "
+            "you're looking at now. Re-run playbook.checkpoint(df, topic=...) against the current session."
         )
     return None
 
 
-def _stage_rows(app_id: Optional[str], manifest) -> Optional[List[Dict[str, Any]]]:
-    if not app_id:
+def _stage_rows(app_ref: Optional[app_client.AppRef], manifest) -> Optional[List[Dict[str, Any]]]:
+    if app_ref is None:
         return None
-    stages = app_client.fetch_stages(app_id)
+    stages = app_client.fetch_stages(app_ref)
     # fetch_stages() passes the REST response through unvalidated (see its
     # docstring) -- guard here against both "unreachable" (None) and an
     # unexpected shape (e.g. a dict instead of a list), treating both the
@@ -103,13 +112,13 @@ def _stage_rows(app_id: Optional[str], manifest) -> Optional[List[Dict[str, Any]
                 "attemptId": stage.get("attemptId", 0),
                 "status": stage.get("status"),
                 "metrics": engine.spotlight_stage_metrics(stage, manifest),
-                "ui_url": app_client.stage_ui_url(stage.get("stageId"), stage.get("attemptId", 0)),
+                "ui_url": app_client.stage_ui_url(app_ref, stage.get("stageId"), stage.get("attemptId", 0)),
             }
         )
     return rows
 
 
-def _stages_context(request: Request, topic, checkpoint_data: Optional[Dict[str, Any]]) -> dict:
+async def _stages_context(request: Request, topic, checkpoint_data: Optional[Dict[str, Any]]) -> dict:
     base = {
         "request": request,
         "topic": topic,
@@ -126,11 +135,37 @@ def _stages_context(request: Request, topic, checkpoint_data: Optional[Dict[str,
         # identical failure mode.
         return {**base, "app_id": None, "stages": None, "manifest_error": str(exc)}
 
-    app_id = checkpoint_data.get("app_id") if checkpoint_data else app_client.fetch_current_app_id()
+    # Issue #24: a checkpoint's app_id records no port, and its application
+    # may no longer be the *most recent* one live (a learner may have since
+    # opened another topic's notebook without shutting down this one's
+    # kernel, which pushes the new one onto :4041/:4042) -- so resolve
+    # specifically which port still serves *this* checkpoint's app_id rather
+    # than assuming :4040 or reusing "most recent" discovery. Absent a
+    # checkpoint, fall back to the most-recent live application, same as the
+    # dashboard.
+    # Offloaded via `asyncio.to_thread` -- both `resolve_app()` and
+    # `resolve_current_app()` now probe multiple ports sequentially
+    # (blocking network I/O), and this is called from an `async def` route,
+    # same reasoning as `_stale_checkpoint_warning()` above.
+    if checkpoint_data:
+        checkpoint_app_id = checkpoint_data.get("app_id")
+        app_ref = (
+            await asyncio.to_thread(app_client.resolve_app, checkpoint_app_id, timeout_s=2.0)
+            if checkpoint_app_id
+            else None
+        )
+        # Keep showing the checkpoint's own id even if no port currently
+        # serves it (matches the existing "show the id regardless of
+        # reachability" behavior `_stale_checkpoint_warning` already covers).
+        app_id = checkpoint_app_id
+    else:
+        app_ref = await asyncio.to_thread(app_client.resolve_current_app, timeout_s=2.0)
+        app_id = app_ref.app_id if app_ref else None
+
     return {
         **base,
         "app_id": app_id,
-        "stages": _stage_rows(app_id, manifest),
+        "stages": _stage_rows(app_ref, manifest),
         "manifest_error": None,
     }
 
@@ -164,8 +199,8 @@ async def reveal_annotation(request: Request, topic_id: str) -> HTMLResponse:
         else:
             operators = plan_parser.parse_operators(checkpoint_data.get("explain_formatted", ""))
             ctx["annotated_nodes"] = engine.annotate_plan(operators, manifest)
-            ctx["stale_warning"] = _stale_checkpoint_warning(checkpoint_data)
-            ctx.update(_stages_context(request, topic, checkpoint_data))
+            ctx["stale_warning"] = await _stale_checkpoint_warning(checkpoint_data)
+            ctx.update(await _stages_context(request, topic, checkpoint_data))
 
     return templates.TemplateResponse(request, "fragments/annotation_reveal.html", ctx)
 
@@ -175,5 +210,5 @@ async def stage_metrics_fragment(request: Request, topic_id: str) -> HTMLRespons
     """Polled every ~6s by HTMX (US-2.2) once Reveal has happened."""
     topic = loader.load_topic(topic_id)
     checkpoint_data = _latest_checkpoint(topic_id)
-    ctx = _stages_context(request, topic, checkpoint_data)
+    ctx = await _stages_context(request, topic, checkpoint_data)
     return templates.TemplateResponse(request, "fragments/stage_table.html", ctx)

@@ -42,9 +42,9 @@ def _no_real_docker_or_spark(monkeypatch):
     """No test in this file should ever touch a real subprocess or REST
     endpoint -- every collector cycle's data sources are mocked out."""
     monkeypatch.setattr(docker_stats, "sample", _fake_sample)
-    monkeypatch.setattr(app_client, "fetch_current_app_id", lambda timeout_s=3.0: None)
-    monkeypatch.setattr(app_client, "fetch_executors", lambda app_id, timeout_s=3.0: None)
-    monkeypatch.setattr(app_client, "fetch_stages", lambda app_id, timeout_s=3.0: None)
+    monkeypatch.setattr(app_client, "resolve_current_app", lambda timeout_s=3.0: None)
+    monkeypatch.setattr(app_client, "fetch_executors", lambda app, timeout_s=3.0: None)
+    monkeypatch.setattr(app_client, "fetch_stages", lambda app, timeout_s=3.0: None)
     monkeypatch.setattr(app_client, "fetch_task_list", lambda *a, **kw: None)
 
 
@@ -255,10 +255,10 @@ class TestCollectOnceDoesNotBlockTheEventLoop:
         monkeypatch.setattr(docker_stats, "sample", _fake_sample)
 
         def _slow_blocking_fetch(*args, **kwargs):
-            time.sleep(0.3)  # simulates a slow/degraded :4040
+            time.sleep(0.3)  # simulates a slow/degraded driver
             return None
 
-        monkeypatch.setattr(app_client, "fetch_current_app_id", _slow_blocking_fetch)
+        monkeypatch.setattr(app_client, "resolve_current_app", _slow_blocking_fetch)
         monkeypatch.setattr(app_client, "fetch_executors", lambda *a, **kw: None)
         monkeypatch.setattr(app_client, "fetch_stages", lambda *a, **kw: None)
         _make_ready()
@@ -328,9 +328,9 @@ class TestAlertTitleFormatting:
         detail text a second time ahead of its own "detected on <name>" tail,
         producing a garbled banner instead of a short factual title."""
         monkeypatch.setattr(docker_stats, "sample", _fake_sample_cpu_imbalance)
-        monkeypatch.setattr(app_client, "fetch_current_app_id", lambda timeout_s=3.0: None)
-        monkeypatch.setattr(app_client, "fetch_executors", lambda app_id, timeout_s=3.0: None)
-        monkeypatch.setattr(app_client, "fetch_stages", lambda app_id, timeout_s=3.0: None)
+        monkeypatch.setattr(app_client, "resolve_current_app", lambda timeout_s=3.0: None)
+        monkeypatch.setattr(app_client, "fetch_executors", lambda app, timeout_s=3.0: None)
+        monkeypatch.setattr(app_client, "fetch_stages", lambda app, timeout_s=3.0: None)
         monkeypatch.setattr(app_client, "fetch_task_list", lambda *a, **kw: None)
         _make_ready(worker_count=2)
 
@@ -370,13 +370,14 @@ class TestSignalCardDeepLinks:
     async def test_signal_cards_link_to_the_current_stage_in_the_real_spark_ui(
         self, fresh_collector, monkeypatch
     ):
+        app_ref = app_client.AppRef(app_id="app-1", base_url="http://localhost:4040")
         monkeypatch.setattr(docker_stats, "sample", _fake_sample)
-        monkeypatch.setattr(app_client, "fetch_current_app_id", lambda timeout_s=3.0: "app-1")
-        monkeypatch.setattr(app_client, "fetch_executors", lambda app_id, timeout_s=3.0: [])
+        monkeypatch.setattr(app_client, "resolve_current_app", lambda timeout_s=3.0: app_ref)
+        monkeypatch.setattr(app_client, "fetch_executors", lambda app, timeout_s=3.0: [])
         monkeypatch.setattr(
             app_client,
             "fetch_stages",
-            lambda app_id, timeout_s=3.0: [
+            lambda app, timeout_s=3.0: [
                 {"stageId": 3, "attemptId": 0, "status": "ACTIVE", "numTasks": 2, "executorRunTime": 100}
             ],
         )
@@ -394,16 +395,17 @@ class TestSignalCardDeepLinks:
         snapshot = await fresh_collector.collect_once()
 
         assert snapshot.signal_cards, "expected at least one signal card (skew was seeded)"
-        expected_link = app_client.stage_ui_url(3, 0)
+        expected_link = app_client.stage_ui_url(app_ref, 3, 0)
         for card in snapshot.signal_cards:
             assert card.deep_link == expected_link, f"card {card.category!r} has no working deep link"
 
     @pytest.mark.asyncio
     async def test_no_current_stage_means_no_deep_link_not_a_crash(self, fresh_collector, monkeypatch):
+        app_ref = app_client.AppRef(app_id="app-1", base_url="http://localhost:4040")
         monkeypatch.setattr(docker_stats, "sample", _fake_sample)
-        monkeypatch.setattr(app_client, "fetch_current_app_id", lambda timeout_s=3.0: "app-1")
-        monkeypatch.setattr(app_client, "fetch_executors", lambda app_id, timeout_s=3.0: [])
-        monkeypatch.setattr(app_client, "fetch_stages", lambda app_id, timeout_s=3.0: [])
+        monkeypatch.setattr(app_client, "resolve_current_app", lambda timeout_s=3.0: app_ref)
+        monkeypatch.setattr(app_client, "fetch_executors", lambda app, timeout_s=3.0: [])
+        monkeypatch.setattr(app_client, "fetch_stages", lambda app, timeout_s=3.0: [])
         monkeypatch.setattr(app_client, "fetch_task_list", lambda *a, **kw: None)
         _make_ready()
 
@@ -429,9 +431,9 @@ class TestSamplingLoopExceptionResilience:
             return await real_fake_sample(cpu_limits, timeout_s=timeout_s)
 
         monkeypatch.setattr(docker_stats, "sample", _flaky_sample)
-        monkeypatch.setattr(app_client, "fetch_current_app_id", lambda timeout_s=3.0: None)
-        monkeypatch.setattr(app_client, "fetch_executors", lambda app_id, timeout_s=3.0: None)
-        monkeypatch.setattr(app_client, "fetch_stages", lambda app_id, timeout_s=3.0: None)
+        monkeypatch.setattr(app_client, "resolve_current_app", lambda timeout_s=3.0: None)
+        monkeypatch.setattr(app_client, "fetch_executors", lambda app, timeout_s=3.0: None)
+        monkeypatch.setattr(app_client, "fetch_stages", lambda app, timeout_s=3.0: None)
         monkeypatch.setattr(app_client, "fetch_task_list", lambda *a, **kw: None)
         _make_ready()
 

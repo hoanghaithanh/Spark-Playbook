@@ -276,16 +276,26 @@ class DashboardCollector:
         # single-process/single-event-loop, so calling them directly here
         # (no `await`, no thread offload) freezes *every* concurrently
         # running coroutine -- not just the dashboard -- for up to each
-        # call's own timeout whenever `:4040` is slow/unreachable (a real,
-        # already-documented failure mode, PLAN.md R2), repeated every ~2s
-        # for as long as any dashboard client is connected. Offload each to
-        # a worker thread so a slow/stuck driver only stalls this cycle's
+        # call's own timeout whenever the driver is slow/unreachable (a
+        # real, already-documented failure mode, PLAN.md R2), repeated every
+        # ~2s for as long as any dashboard client is connected. Offload each
+        # to a worker thread so a slow/stuck driver only stalls this cycle's
         # own data, not the whole app.
-        app_id = await asyncio.to_thread(app_client.fetch_current_app_id, timeout_s=2.0)
+        #
+        # Issue #24: resolve the current application's `AppRef` (id + which
+        # of DRIVER_APP_UI_PORTS actually serves it) once per cycle and
+        # thread that single `AppRef` through every fetch below, instead of
+        # each fetch independently assuming a fixed `:4040` -- otherwise a
+        # second concurrently-open Jupyter kernel (whose SparkContext Spark
+        # silently rebinds to :4041/:4042 once :4040 is already held) is
+        # permanently invisible to the dashboard, which is exactly what froze
+        # Job Detail on the first job of a session.
+        app_ref = await asyncio.to_thread(app_client.resolve_current_app, timeout_s=2.0)
+        app_id = app_ref.app_id if app_ref else None
         executors_raw = (
-            await asyncio.to_thread(app_client.fetch_executors, app_id, timeout_s=2.0) if app_id else None
+            await asyncio.to_thread(app_client.fetch_executors, app_ref, timeout_s=2.0) if app_ref else None
         )
-        stages_raw = await asyncio.to_thread(app_client.fetch_stages, app_id, timeout_s=2.0) if app_id else None
+        stages_raw = await asyncio.to_thread(app_client.fetch_stages, app_ref, timeout_s=2.0) if app_ref else None
 
         ip_to_name: Dict[str, str] = {}
         if app_id:
@@ -297,13 +307,13 @@ class DashboardCollector:
 
         current_stage = _select_current_stage(stages_raw) if isinstance(stages_raw, list) else None
         tasks_raw: Optional[List[dict]] = None
-        if app_id and current_stage is not None:
+        if app_ref is not None and current_stage is not None:
             # `length` passed explicitly -- found by actually running this
             # against a real 200-task stage: the REST endpoint silently caps
             # at 20 tasks otherwise (app_client.fetch_task_list's docstring).
             tasks_raw = await asyncio.to_thread(
                 app_client.fetch_task_list,
-                app_id,
+                app_ref,
                 current_stage.get("stageId"),
                 current_stage.get("attemptId", 0),
                 length=max(1000, current_stage.get("numTasks") or 0),
@@ -335,7 +345,7 @@ class DashboardCollector:
         job, stages_bars, stage_durations = self._build_job(app_id, current_stage, stages_raw, task_samples)
 
         signal_cards = self._build_signal_cards(
-            task_samples, skewed_ids, resource_samples, stage_durations, job, current_stage
+            task_samples, skewed_ids, resource_samples, stage_durations, job, current_stage, app_ref
         )
 
         flagged_node = next((n for n in nodes if n.flagged), None)
@@ -669,7 +679,7 @@ class DashboardCollector:
         return job, bars, stage_durations
 
     def _build_signal_cards(
-        self, task_samples, skewed_ids, resource_samples, stage_durations, job, current_stage
+        self, task_samples, skewed_ids, resource_samples, stage_durations, job, current_stage, app_ref
     ) -> List[SignalCard]:
         if job is None:
             return []
@@ -681,10 +691,13 @@ class DashboardCollector:
         # used for the identical purpose in `annotation.py`. All three
         # signal cards are derived from the current/most-recently-completed
         # stage's own data, so they all deep-link to that same stage page.
+        # Issue #24: built from the resolved `app_ref` (correct port), not
+        # the fixed `:4040` -- otherwise a `:4041`/`:4042` application's
+        # deep links always pointed at the wrong driver's landing page.
         deep_link = None
-        if current_stage is not None and current_stage.get("stageId") is not None:
+        if app_ref is not None and current_stage is not None and current_stage.get("stageId") is not None:
             deep_link = app_client.stage_ui_url(
-                current_stage.get("stageId"), current_stage.get("attemptId", 0)
+                app_ref, current_stage.get("stageId"), current_stage.get("attemptId", 0)
             )
 
         skew_detail = diagnostics.partition_size_signal(task_samples, skewed_ids)

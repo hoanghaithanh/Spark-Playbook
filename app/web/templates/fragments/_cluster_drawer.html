@@ -1,0 +1,11 @@
+<div id="cluster-panel" class="drawer-body">
+  {% include "fragments/_cluster_form.html" %}
+
+  <p class="drawer-status status-{{ status.state.value }}">
+    <strong>State:</strong> {{ status.state.value }} &mdash; {{ status.message }}
+    {% if status.error %}<br /><span class="error"><strong>Error:</strong> {{ status.error }}</span>{% endif %}
+    {% if status.alive_workers is not none and status.params %}
+      <br /><strong>Workers alive:</strong> {{ status.alive_workers }}/{{ status.params.worker_count }}
+    {% endif %}
+  </p>
+</div>

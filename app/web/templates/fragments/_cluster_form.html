@@ -1,0 +1,54 @@
+{# Shared spawn/teardown parameter form (topic-shell redesign, Decision C /
+   code-review finding: the cluster-config drawer must reuse this instead of
+   carrying a second copy). Included by the drawer (`_cluster_drawer.html`)
+   -- the pre-redesign standalone panel this partial was originally shared
+   with (`cluster_panel.html`) was fully superseded by the shell's right-pane
+   fragment and removed. Kept as its own partial so a future consumer (e.g.
+   the shell's Cluster Monitor panel work) reuses it too, rather than
+   inlining it into the drawer -- so the field names, locked ranges (US-SH2:
+   memory 1-8GB, shuffle 1-300),
+   and hx- wiring live in exactly one place -- a future range change only
+   needs to happen here, not in two drifting copies. #}
+<form id="spawn-form"
+      hx-post="/topics/{{ topic.id }}/spawn"
+      hx-target="#cluster-panel"
+      hx-swap="outerHTML"
+      hx-indicator="#spawn-indicator"
+      hx-disabled-elt="#spawn-btn, #teardown-btn">
+  <fieldset>
+    <legend>Cluster parameters</legend>
+    <label>
+      Workers ({{ worker_count_range[0] }}-{{ worker_count_range[1] }})
+      <input type="number" name="worker_count" min="{{ worker_count_range[0] }}"
+             max="{{ worker_count_range[1] }}" value="{{ defaults.worker_count }}" required />
+    </label>
+    <label>
+      Cores / worker ({{ worker_cores_range[0] }}-{{ worker_cores_range[1] }})
+      <input type="number" name="worker_cores" min="{{ worker_cores_range[0] }}"
+             max="{{ worker_cores_range[1] }}" value="{{ defaults.worker_cores }}" required />
+    </label>
+    <label>
+      Memory (GB) ({{ worker_memory_gb_range[0] }}-{{ worker_memory_gb_range[1] }})
+      <input type="number" name="worker_memory_gb" min="{{ worker_memory_gb_range[0] }}"
+             max="{{ worker_memory_gb_range[1] }}" value="{{ defaults.worker_memory_gb }}" required />
+    </label>
+    <label>
+      Shuffle partitions ({{ shuffle_partitions_range[0] }}-{{ shuffle_partitions_range[1] }})
+      <input type="number" name="shuffle_partitions" min="{{ shuffle_partitions_range[0] }}"
+             max="{{ shuffle_partitions_range[1] }}" value="{{ defaults.shuffle_partitions }}" required />
+    </label>
+    <label class="checkbox">
+      <input type="checkbox" name="aqe_enabled" value="true" {% if defaults.aqe_enabled %}checked{% endif %} />
+      Adaptive Query Execution (AQE)
+    </label>
+  </fieldset>
+
+  <div class="actions">
+    <button id="spawn-btn" type="submit">Spawn cluster</button>
+    <span id="spawn-indicator" class="htmx-indicator">Spawning... this can take up to 90 seconds.</span>
+  </div>
+</form>
+
+<form hx-post="/topics/{{ topic.id }}/teardown" hx-target="#cluster-panel" hx-swap="outerHTML">
+  <button id="teardown-btn" type="submit">Tear down cluster</button>
+</form>

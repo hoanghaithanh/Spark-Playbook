@@ -1,6 +1,7 @@
 """Tests for app/topics/loader.py (US-1.1: content-as-data)."""
 from __future__ import annotations
 
+import json
 from unittest.mock import patch
 
 import pytest
@@ -170,3 +171,176 @@ class TestContentAsDataNoCaching:
 
             topic2 = loader.load_topic("editable-topic")
             assert topic2.cluster_defaults.worker_count == 4
+
+
+class TestWalkthroughSteps:
+    """Topic.walkthrough_steps() (topic-shell redesign, US-SH7) parses the
+    Notebook tab's step list straight out of notebook.ipynb's "## N. Title"
+    markdown cells (content-as-data, G-SH1/G7) -- no manifest field, no new
+    schema. Uses synthetic fixture notebooks to pin down the parsing rules
+    precisely, plus a check against the real shipped partitioning-shuffle
+    notebook so the two don't drift apart."""
+
+    def _write_notebook(self, path, cells):
+        path.write_text(json.dumps({"cells": cells}), encoding="utf-8")
+
+    def _md_cell(self, source_lines):
+        return {"cell_type": "markdown", "source": source_lines}
+
+    def _code_cell(self, source_lines):
+        return {"cell_type": "code", "source": source_lines}
+
+    def test_real_partitioning_shuffle_notebook_parses_five_numbered_steps(self):
+        topic = loader.load_topic("partitioning-shuffle")
+        steps = topic.walkthrough_steps()
+
+        assert [s.number for s in steps] == ["1", "2", "3", "4", "5"]
+        assert steps[0].title == "Build a keyed dataset spread across input partitions"
+        # idx=2 (0-indexed) markdown cell -> the following code cell sits at
+        # 1-indexed position idx+2 = 4 in the real shipped notebook.
+        assert steps[0].cell == 4
+        assert steps[1].cell == 6
+        assert "Exchange" in steps[2].detail  # step 3's real body text, not a stub
+
+    def test_only_numbered_markdown_headings_become_steps(self, tmp_path):
+        """A title cell with no '## N.' heading (like every notebook's first
+        cell) and a plain (non-numbered) '##' heading are both skipped --
+        only cells matching the numbered convention become steps."""
+        notebook = tmp_path / "notebook.ipynb"
+        self._write_notebook(
+            notebook,
+            [
+                self._md_cell(["# Some Topic\n", "\n", "intro text"]),
+                self._code_cell(["import pyspark"]),
+                self._md_cell(["## Not numbered\n", "\n", "should be skipped"]),
+                self._code_cell(["x = 1"]),
+                self._md_cell(["## 1. First real step\n", "\n", "body text"]),
+                self._code_cell(["y = 2"]),
+            ],
+        )
+        topic = loader.load_topic("partitioning-shuffle")
+        topic.notebook_path = notebook
+
+        steps = topic.walkthrough_steps()
+
+        assert len(steps) == 1
+        assert steps[0].number == "1"
+        assert steps[0].title == "First real step"
+        assert steps[0].detail == "body text"
+        assert steps[0].cell == 6  # idx=4 -> idx+2
+
+    def test_markdown_step_as_final_cell_uses_its_own_1_indexed_position(self, tmp_path):
+        """If the numbered heading is the very last cell (no following code
+        cell), 'cell' falls back to the step's own 1-indexed position rather
+        than pointing past the end of the notebook."""
+        notebook = tmp_path / "notebook.ipynb"
+        self._write_notebook(
+            notebook,
+            [
+                self._code_cell(["setup = True"]),
+                self._md_cell(["## 1. Trailing step with no code after it"]),
+            ],
+        )
+        topic = loader.load_topic("partitioning-shuffle")
+        topic.notebook_path = notebook
+
+        steps = topic.walkthrough_steps()
+
+        assert len(steps) == 1
+        assert steps[0].cell == 2  # idx=1 -> idx+1 (last cell, no next cell)
+
+    def test_skips_intervening_markdown_to_find_the_next_code_cell(self, tmp_path):
+        """Code-review finding: the original cell_number = idx + 2 assumed
+        the cell immediately after a numbered heading is always code -- true
+        for all 4 shipped notebooks today (they strictly alternate
+        markdown/code) but not guaranteed. An explanatory aside markdown
+        cell between the heading and its code must be skipped over, not
+        mistaken for the step's cell."""
+        notebook = tmp_path / "notebook.ipynb"
+        self._write_notebook(
+            notebook,
+            [
+                self._md_cell(["## 1. Step with an aside before its code\n", "\n", "body text"]),
+                self._md_cell(["Just an explanatory aside, not a numbered step."]),
+                self._code_cell(["z = 1"]),
+            ],
+        )
+        topic = loader.load_topic("partitioning-shuffle")
+        topic.notebook_path = notebook
+
+        steps = topic.walkthrough_steps()
+
+        assert len(steps) == 1
+        assert steps[0].cell == 3  # idx=0 -> skips idx=1 (markdown aside) -> idx=2 (code) -> idx+1
+
+    def test_markdown_step_with_only_markdown_after_it_falls_back_to_own_position(self, tmp_path):
+        """If every remaining cell after the heading is markdown (no code
+        cell before the notebook ends), 'cell' falls back to the heading's
+        own 1-indexed position -- same graceful degradation as the
+        last-cell case, not a crash or an out-of-range reference."""
+        notebook = tmp_path / "notebook.ipynb"
+        self._write_notebook(
+            notebook,
+            [
+                self._md_cell(["## 1. Step with no code anywhere after it\n", "\n", "body text"]),
+                self._md_cell(["Trailing markdown aside, still no code."]),
+            ],
+        )
+        topic = loader.load_topic("partitioning-shuffle")
+        topic.notebook_path = notebook
+
+        steps = topic.walkthrough_steps()
+
+        assert len(steps) == 1
+        assert steps[0].cell == 1  # idx=0 -> no code cell follows -> falls back to idx+1
+
+    def test_source_as_plain_string_is_handled_same_as_list_of_lines(self, tmp_path):
+        """nbformat's `source` field may be a single string instead of a list
+        of lines -- both are valid per the notebook format spec, and the
+        parser must handle both the same way."""
+        notebook = tmp_path / "notebook.ipynb"
+        self._write_notebook(
+            notebook,
+            [
+                {"cell_type": "markdown", "source": "## 1. String-source step\nsome detail"},
+                self._code_cell(["z = 3"]),
+            ],
+        )
+        topic = loader.load_topic("partitioning-shuffle")
+        topic.notebook_path = notebook
+
+        steps = topic.walkthrough_steps()
+
+        assert len(steps) == 1
+        assert steps[0].title == "String-source step"
+        assert steps[0].detail == "some detail"
+
+    def test_malformed_notebook_json_degrades_to_empty_list_not_a_raise(self, tmp_path):
+        """Per the method's own docstring: a broken/unparseable notebook.ipynb
+        must not blow up the Notebook tab -- it just shows no steps. This is
+        distinct from a *missing* notebook file, which load_topic() already
+        rejects eagerly at load time (issue #5) before walkthrough_steps() is
+        ever called."""
+        notebook = tmp_path / "notebook.ipynb"
+        notebook.write_text("{not valid json", encoding="utf-8")
+        topic = loader.load_topic("partitioning-shuffle")
+        topic.notebook_path = notebook
+
+        assert topic.walkthrough_steps() == []
+
+    def test_notebook_with_no_cells_key_degrades_to_empty_list(self, tmp_path):
+        notebook = tmp_path / "notebook.ipynb"
+        notebook.write_text(json.dumps({}), encoding="utf-8")
+        topic = loader.load_topic("partitioning-shuffle")
+        topic.notebook_path = notebook
+
+        assert topic.walkthrough_steps() == []
+
+    def test_every_built_topic_notebook_yields_no_parse_errors(self):
+        """R-Shell-5-style smoke check: every currently shipped topic's
+        notebook must parse to *some* list (possibly empty) without raising,
+        since walkthrough_steps() backs a tab every topic renders through the
+        one shared shell."""
+        for topic in loader.list_topics():
+            steps = topic.walkthrough_steps()
+            assert isinstance(steps, list)

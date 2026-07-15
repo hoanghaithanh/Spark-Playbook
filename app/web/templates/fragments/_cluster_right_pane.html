@@ -1,0 +1,66 @@
+{% set oob = oob | default(false) %}
+<div id="cluster-right-pane" class="right-pane" {% if oob %}hx-swap-oob="true"{% endif %}>
+  {% if status.state.value == "idle" %}
+  <div class="right-pane-state right-pane-idle">
+    <div class="state-icon state-icon-idle"></div>
+    <div class="state-copy">
+      <div class="state-title">No cluster running</div>
+      <div class="state-detail">Spawn a cluster to launch JupyterLab for this notebook.</div>
+    </div>
+    <button type="submit" form="spawn-form" class="state-action">Spawn cluster</button>
+  </div>
+
+  {% elif is_busy %}
+  <div class="right-pane-state right-pane-busy">
+    <div class="state-spinner"></div>
+    <div class="state-copy">
+      <div class="state-title">
+        {% if status.params %}Provisioning {{ status.params.worker_count }} worker(s)&hellip;{% else %}Working&hellip;{% endif %}
+      </div>
+      <div class="state-detail">
+        {% if status.params %}
+          {{ status.params.worker_cores }} cores &middot; {{ status.params.worker_memory_gb }}GB / worker
+          &middot; shuffle.partitions={{ status.params.shuffle_partitions }}
+        {% endif %}
+      </div>
+      <div class="state-detail">{{ status.message }}</div>
+    </div>
+  </div>
+
+  {% elif status.state.value == "failed" %}
+  <div class="right-pane-state right-pane-error">
+    <div class="state-icon state-icon-error">!</div>
+    <div class="state-copy">
+      <div class="state-title">Cluster failed to start</div>
+      <div class="state-detail">{{ status.error or status.message }}</div>
+    </div>
+    <button type="submit" form="spawn-form" class="state-action">Retry</button>
+  </div>
+
+  {% elif is_ready %}
+  <div class="right-pane-ready">
+    <div class="ready-status-bar">
+      <span class="ready-dot"></span>
+      <span>{{ status.message }}</span>
+      <a href="{{ master_ui_url }}" target="_blank" rel="noopener">Master UI &rarr;</a>
+    </div>
+    <div class="jupyter-embed">
+      <iframe
+        title="JupyterLab"
+        src="{{ jupyter_url }}/lab/tree/{{ topic.notebook_relpath }}?spawn={{ status.spawn_id }}"
+        width="100%"
+        height="100%"
+        style="border:none;">
+      </iframe>
+    </div>
+  </div>
+
+  {% else %}
+  <div class="right-pane-state">
+    <div class="state-copy">
+      <div class="state-title">{{ status.state.value }}</div>
+      <div class="state-detail">{{ status.message }}</div>
+    </div>
+  </div>
+  {% endif %}
+</div>

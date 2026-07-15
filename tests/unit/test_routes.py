@@ -170,14 +170,21 @@ class TestTeardown:
 
 class TestJupyterIframeReflectsCurrentSpawn:
     """US-1.3: the embedded iframe must point at the *current* stack, not a
-    stale reference after teardown+respawn -- the panel template keys the
-    iframe src off `status.spawn_id`, so a new spawn_id must appear."""
+    stale reference after teardown+respawn -- the shell's right pane keys the
+    iframe src off `status.spawn_id`, so a new spawn_id must appear.
+
+    Retargeted from the retired `/topics/{id}/panel` route (topic-shell
+    redesign, code-review finding: `/panel` was UI-unreachable dead code once
+    the shell's right pane -- not the standalone panel template -- became the
+    only place the iframe renders) onto `/topics/{id}`, which is the shell's
+    real entry point and renders the same iframe via
+    `fragments/_cluster_right_pane.html`."""
 
     def test_iframe_present_when_ready_with_current_spawn_id(self, monkeypatch):
         ready_status = _status(ClusterState.READY, message="READY", alive_workers=3, spawn_id=7)
         monkeypatch.setattr(topics_module.manager, "status", lambda: ready_status)
 
-        resp = client.get("/topics/partitioning-shuffle/panel")
+        resp = client.get("/topics/partitioning-shuffle")
 
         assert resp.status_code == 200
         assert "<iframe" in resp.text
@@ -187,7 +194,7 @@ class TestJupyterIframeReflectsCurrentSpawn:
         idle_status = _status(ClusterState.IDLE, message="No cluster running.", params=None)
         monkeypatch.setattr(topics_module.manager, "status", lambda: idle_status)
 
-        resp = client.get("/topics/partitioning-shuffle/panel")
+        resp = client.get("/topics/partitioning-shuffle")
 
         assert resp.status_code == 200
         assert "<iframe" not in resp.text

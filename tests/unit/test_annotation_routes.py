@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from app import config
 from app.main import app
+from app.spark_api.app_client import AppRef
 from app.web.routes import annotation as annotation_module
 
 client = TestClient(app)
@@ -62,12 +63,18 @@ class TestRevealWithCheckpoint:
         annotations_dir = tmp_path / "annotations"
         _write_checkpoint(annotations_dir, "join-strategies")
 
-        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app_id, timeout_s=3.0: [])
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: [])
         # Fresh checkpoint (issue #16): app_id is known to the "current" driver,
         # so no stale-checkpoint warning -- keeps this test focused on plan
-        # annotation and avoids a real network call to :4040.
+        # annotation and avoids a real network call. Issue #24: resolve_app()
+        # is what _stages_context() now calls for a checkpoint-driven lookup.
         monkeypatch.setattr(
             annotation_module.app_client, "fetch_all_app_ids", lambda timeout_s=3.0: ["app-test-0001"]
+        )
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "resolve_app",
+            lambda app_id, timeout_s=3.0: AppRef(app_id=app_id, base_url="http://localhost:4040"),
         )
 
         with patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
@@ -90,9 +97,14 @@ class TestRevealWithCheckpoint:
 (0) Scan parquet default.x
 """
         _write_checkpoint(annotations_dir, "join-strategies", explain_text=plan_with_unknown_node)
-        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app_id, timeout_s=3.0: [])
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: [])
         monkeypatch.setattr(
             annotation_module.app_client, "fetch_all_app_ids", lambda timeout_s=3.0: ["app-test-0001"]
+        )
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "resolve_app",
+            lambda app_id, timeout_s=3.0: AppRef(app_id=app_id, base_url="http://localhost:4040"),
         )
 
         with patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
@@ -114,8 +126,9 @@ class TestRevealStaleCheckpointWarning:
         annotations_dir = tmp_path / "annotations"
         _write_checkpoint(annotations_dir, "join-strategies", app_id="app-two-hours-old")
         monkeypatch.setattr(annotation_module.app_client, "fetch_all_app_ids", lambda timeout_s=3.0: None)
-        monkeypatch.setattr(annotation_module.app_client, "fetch_current_app_id", lambda timeout_s=3.0: None)
-        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app_id, timeout_s=3.0: None)
+        monkeypatch.setattr(annotation_module.app_client, "resolve_current_app", lambda timeout_s=3.0: None)
+        monkeypatch.setattr(annotation_module.app_client, "resolve_app", lambda app_id, timeout_s=3.0: None)
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: None)
 
         with patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
             resp = client.post("/topics/join-strategies/annotation/reveal")
@@ -135,7 +148,10 @@ class TestRevealStaleCheckpointWarning:
         monkeypatch.setattr(
             annotation_module.app_client, "fetch_all_app_ids", lambda timeout_s=3.0: ["app-new-session"]
         )
-        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app_id, timeout_s=3.0: None)
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: None)
+        # The checkpoint's own id ("app-old-session") isn't known to any
+        # probed port -- resolve_app() must reflect that.
+        monkeypatch.setattr(annotation_module.app_client, "resolve_app", lambda app_id, timeout_s=3.0: None)
 
         with patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
             resp = client.post("/topics/join-strategies/annotation/reveal")
@@ -153,7 +169,12 @@ class TestRevealStaleCheckpointWarning:
         monkeypatch.setattr(
             annotation_module.app_client, "fetch_all_app_ids", lambda timeout_s=3.0: ["app-just-finished"]
         )
-        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app_id, timeout_s=3.0: [])
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: [])
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "resolve_app",
+            lambda app_id, timeout_s=3.0: AppRef(app_id=app_id, base_url="http://localhost:4040"),
+        )
 
         with patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
             resp = client.post("/topics/join-strategies/annotation/reveal")
@@ -188,7 +209,7 @@ class TestStageMetricsFragment:
 
     def test_no_active_application_shows_clear_message(self, tmp_path, monkeypatch):
         with patch.object(config, "ANNOTATIONS_DIR", tmp_path / "annotations"):
-            monkeypatch.setattr(annotation_module.app_client, "fetch_current_app_id", lambda timeout_s=3.0: None)
+            monkeypatch.setattr(annotation_module.app_client, "resolve_current_app", lambda timeout_s=3.0: None)
             resp = client.get("/topics/join-strategies/annotation/stages")
         assert resp.status_code == 200
         assert "No active" in resp.text
@@ -209,7 +230,12 @@ class TestStageMetricsFragment:
                 "diskBytesSpilled": 0,
             }
         ]
-        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app_id, timeout_s=3.0: stages)
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: stages)
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "resolve_app",
+            lambda app_id, timeout_s=3.0: AppRef(app_id=app_id, base_url="http://localhost:4040"),
+        )
 
         with patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
             resp = client.get("/topics/join-strategies/annotation/stages")
@@ -222,7 +248,12 @@ class TestStageMetricsFragment:
     def test_unreachable_rest_api_shows_clear_message(self, tmp_path, monkeypatch):
         annotations_dir = tmp_path / "annotations"
         _write_checkpoint(annotations_dir, "join-strategies", app_id="app-test-0003")
-        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app_id, timeout_s=3.0: None)
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: None)
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "resolve_app",
+            lambda app_id, timeout_s=3.0: AppRef(app_id=app_id, base_url="http://localhost:4040"),
+        )
 
         with patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
             resp = client.get("/topics/join-strategies/annotation/stages")
@@ -239,7 +270,12 @@ class TestStageMetricsFragment:
         monkeypatch.setattr(
             annotation_module.app_client,
             "fetch_stages",
-            lambda app_id, timeout_s=3.0: {"error": "unexpected shape"},
+            lambda app, timeout_s=3.0: {"error": "unexpected shape"},
+        )
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "resolve_app",
+            lambda app_id, timeout_s=3.0: AppRef(app_id=app_id, base_url="http://localhost:4040"),
         )
 
         with patch.object(config, "ANNOTATIONS_DIR", annotations_dir):

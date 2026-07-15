@@ -7,14 +7,24 @@ in Phase 1 (annotation engine itself is Phase 2 scope).
 """
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import markdown
 import yaml
 
 from app import config
+
+# Matches this repo's own numbered-markdown-cell convention (every existing
+# notebook -- partitioning-shuffle, join-strategies, bucketing, aqe -- already
+# uses "## N. Title" markdown cells to structure the walkthrough), so the
+# Notebook tab's step list (US-SH7 / topic-shell-redesign shell.html) can be
+# derived straight from notebook.ipynb content instead of a new manifest
+# field -- no bespoke per-topic markup or schema addition needed (G-SH1/G7).
+_STEP_HEADING_RE = re.compile(r"^##\s+(\d+)\.\s*(.+?)\s*$")
 
 
 class TopicNotFoundError(Exception):
@@ -28,6 +38,14 @@ class ClusterDefaults:
     worker_memory_gb: int = config.DEFAULTS["worker_memory_gb"]
     shuffle_partitions: int = config.DEFAULTS["shuffle_partitions"]
     aqe_enabled: bool = config.DEFAULTS["aqe_enabled"]
+
+
+@dataclass
+class WalkthroughStep:
+    number: str
+    title: str
+    detail: str
+    cell: int
 
 
 @dataclass
@@ -50,6 +68,65 @@ class Topic:
     def concept_html(self) -> str:
         raw = self.content_path.read_text(encoding="utf-8")
         return markdown.markdown(raw, extensions=["fenced_code", "tables"])
+
+    def walkthrough_steps(self) -> List["WalkthroughStep"]:
+        """Notebook tab step list (topic-shell redesign, US-SH7), parsed from
+        this topic's own notebook.ipynb rather than a new manifest field --
+        every existing notebook already numbers its walkthrough with
+        "## N. Title" markdown cells (see module docstring), so this is
+        content-as-data (G-SH1/G7), not bespoke per-topic markup. Malformed
+        or missing notebook JSON degrades to an empty list rather than
+        raising -- the Notebook tab still renders (just without steps), and
+        `load_topic()` already validates notebook_path.exists() at load time
+        (issue #5), so an empty result here means "no numbered steps found",
+        not "notebook missing"."""
+        try:
+            raw = json.loads(self.notebook_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return []
+
+        steps: List[WalkthroughStep] = []
+        cells = raw.get("cells", [])
+        for idx, cell in enumerate(cells):
+            if cell.get("cell_type") != "markdown":
+                continue
+            source = cell.get("source", [])
+            text = "".join(source) if isinstance(source, list) else str(source)
+            lines = text.splitlines()
+            if not lines:
+                continue
+            match = _STEP_HEADING_RE.match(lines[0])
+            if not match:
+                continue
+            detail = "\n".join(lines[1:]).strip()
+            # The next *code* cell (if any) is what this step's markdown
+            # introduces -- "Cell N" is the 1-indexed position in the
+            # notebook file, a stable content-driven reference (not tied to
+            # execution_count, which stays null for unexecuted notebooks
+            # per CLAUDE.md's notebook-cleanliness convention). Skip forward
+            # past any intervening markdown (e.g. an explanatory aside cell)
+            # rather than assuming the very next cell is code -- all 4
+            # existing notebooks happen to alternate markdown/code strictly,
+            # but nothing enforces that, so a naive idx+2 could point a
+            # step's badge at another markdown cell in a future notebook.
+            # Falls back to the heading's own 1-indexed position -- same
+            # graceful degradation the original code used when the heading
+            # was the last cell in the notebook -- if no code cell follows
+            # before the notebook ends.
+            cell_number = idx + 1
+            for lookahead_idx in range(idx + 1, len(cells)):
+                if cells[lookahead_idx].get("cell_type") == "code":
+                    cell_number = lookahead_idx + 1
+                    break
+            steps.append(
+                WalkthroughStep(
+                    number=match.group(1),
+                    title=match.group(2),
+                    detail=detail,
+                    cell=cell_number,
+                )
+            )
+        return steps
 
 
 def _topic_dir(topic_id: str) -> Path:

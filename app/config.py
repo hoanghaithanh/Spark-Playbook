@@ -53,6 +53,20 @@ MASTER_UI_URL = "http://localhost:8080"
 DRIVER_APP_UI_URL = "http://localhost:4040"
 JUPYTER_URL = "http://localhost:8888"
 
+# Driver Spark-UI/REST ports (issue #24). A learner switching topic notebooks
+# without shutting down the prior Jupyter kernel leaves that kernel's
+# SparkContext alive and holding :4040; Spark's own SparkUI then silently
+# rebinds to :4041 (then :4042) for the next still-alive SparkContext rather
+# than failing (confirmed live: two concurrently-open kernels really do land
+# on different ports). `compose/templates/docker-compose.yml.j2` already
+# publishes this same `4040-4042` range, so the multi-port scenario was
+# anticipated by the compose template but never wired into `app_client.py`,
+# which used to look at :4040 only -- the direct cause of the dashboard's
+# Job Detail view getting stuck on whichever application first grabbed that
+# port. Fixed small list mirroring the literal compose port mapping, not a
+# variable-driven range like WORKER_COUNT_RANGE.
+DRIVER_APP_UI_PORTS = (4040, 4041, 4042)
+
 # Template variable defaults (PLAN.md §2 table).
 DEFAULTS = {
     "worker_count": 3,
@@ -67,6 +81,13 @@ DEFAULTS = {
 WORKER_COUNT_RANGE = (1, 5)
 WORKER_CORES_RANGE = (1, 4)
 WORKER_MEMORY_GB_RANGE = (1, 8)
+
+# Shuffle-partitions UI range (topic-shell redesign, US-SH2 -- settled
+# 2026-07-15). PLAN.md §2's underlying `shuffle_partitions` template variable
+# stays "any positive integer" semantically; this is only the drawer's UI
+# bound (docs/requirements/topic-shell-redesign.md), replacing the previous
+# unbounded `min="1"`-only input the pre-redesign panel used.
+SHUFFLE_PARTITIONS_RANGE = (1, 300)
 
 # Resource ceiling, GB (PLAN.md §2 resource-ceiling check / R5).
 #

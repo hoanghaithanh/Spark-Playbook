@@ -1,0 +1,9 @@
+{# Spawn/teardown POST response (topic-shell redesign, Decision C / friction
+   note 3): the drawer's #cluster-panel is the primary hx-target (outerHTML
+   swap), and the right pane + top-bar pill -- both physically elsewhere in
+   the shell's DOM -- ride along as out-of-band swaps in the same response,
+   the same `hx-swap-oob` mechanism the Phase 2.5 dashboard already uses for
+   its own multi-fragment SSE pushes (dashboard.py::_render_oob_payload). #}
+{% include "fragments/_cluster_drawer.html" %}
+{% with oob = true %}{% include "fragments/_cluster_right_pane.html" %}{% endwith %}
+{% with oob = true %}{% include "fragments/_state_pill.html" %}{% endwith %}

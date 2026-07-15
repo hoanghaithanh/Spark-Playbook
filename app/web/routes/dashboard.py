@@ -34,6 +34,7 @@ from app import config
 from app.lifecycle.manager import ClusterState, manager
 from app.monitoring.collector import collector
 from app.monitoring.model import Snapshot
+from app.spark_api import app_client
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(config.WEB_TEMPLATES_DIR))
@@ -68,6 +69,19 @@ async def _current_snapshot() -> Snapshot:
         return collector.inactive_snapshot()
 
 
+async def _driver_ui_url() -> str:
+    """Best-effort "open Spark UI" header link (issue #24, same bug class as
+    the Job Detail freeze, but low priority -- a header link, not the
+    freeze): points at the currently-resolved application's actual port when
+    one is discoverable, falling back to the historical `:4040` default
+    otherwise (e.g. no cluster/application yet)."""
+    try:
+        app_ref = await asyncio.to_thread(app_client.resolve_current_app, timeout_s=2.0)
+    except Exception:
+        app_ref = None
+    return app_ref.base_url if app_ref else config.DRIVER_APP_UI_URL
+
+
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(request: Request) -> HTMLResponse:
     snapshot = await _current_snapshot()
@@ -78,7 +92,7 @@ async def dashboard_page(request: Request) -> HTMLResponse:
             "request": request,
             "snapshot": snapshot,
             "master_ui_url": config.MASTER_UI_URL,
-            "driver_ui_url": config.DRIVER_APP_UI_URL,
+            "driver_ui_url": await _driver_ui_url(),
         },
     )
 

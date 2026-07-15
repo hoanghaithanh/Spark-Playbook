@@ -1,0 +1,5 @@
+{% set oob = oob | default(false) %}
+<div id="top-bar-pill" class="state-pill state-pill-{{ status.state.value }}" {% if oob %}hx-swap-oob="true"{% endif %}>
+  <span class="state-pill-dot"></span>
+  <span class="state-pill-label">{{ status.state.value }}</span>
+</div>
