@@ -1,5 +1,5 @@
 {% import "dashboard/macros.html" as m %}
-<div id="node-detail-container" hx-swap-oob="true">
+<div id="node-detail-container" hx-swap-oob="innerHTML:#node-detail-container">
 {% for node in snapshot.nodes %}
 {{ m.node_detail_block(node, snapshot.partitions | selectattr("node", "equalto", node.name) | list) }}
 {% endfor %}
