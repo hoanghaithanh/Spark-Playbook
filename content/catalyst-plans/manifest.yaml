@@ -1,0 +1,75 @@
+# Spark Playbook — topic manifest (PLAN.md §3 schema).
+
+id: catalyst-plans
+title: "Spark SQL Catalyst: How a Query Becomes a Plan"
+order: 5
+content: concept.md
+notebook: notebook.ipynb
+
+cluster_defaults:
+  worker_count: 3
+  worker_cores: 2
+  worker_memory_gb: 4
+  shuffle_partitions: 200
+  aqe_enabled: false
+requires_kafka: false
+
+annotation:
+  # US-SH8: the hypothesis under test is "does the filter get pushed below
+  # the join?", which is a pure plan-node-*position* fact, not a distinct
+  # operator name -- so both rules below match the same "Filter" operator
+  # name and differ only by `requires_absent_nearby` (manifest.py's adjacency
+  # extension, demonstrated first in content/bucketing/manifest.yaml).
+  #
+  # The notebook's DataFrame and SQL cells apply the filter directly on a
+  # single-side column, and Catalyst pushes it below the join into that
+  # side's scan -- so the Filter node is a *descendant* of SortMergeJoin,
+  # printed forward of it in explain(mode="formatted")'s top-down tree order.
+  # Forward of that Filter, the SortMergeJoin never reappears (a plan has
+  # exactly one), so `requires_absent_nearby: SortMergeJoin` holds.
+  #
+  # The UDF cell wraps the identical condition in a `.asNondeterministic()`
+  # UDF -- Catalyst won't reorder a non-deterministic expression past a join,
+  # so that Filter (and the BatchEvalPython node evaluating the UDF) stays
+  # *above* the join, printed before it. Forward of that Filter, the
+  # SortMergeJoin node **does** appear shortly after (it's the next thing
+  # printed, as the child of the Filter/BatchEvalPython pair) -- so the same
+  # `requires_absent_nearby: SortMergeJoin` check fails, falling through to
+  # the second (fallback) rule below. This distinguishes pushed vs.
+  # not-pushed by position alone, without needing to know whether Spark's
+  # automatic join-key null-filter (a *separate* Filter node present in all
+  # three variants) is also nearby -- that noise is irrelevant to this check.
+  plan_nodes:
+    - match: "Filter"
+      concept: filter-pushed-below-join
+      label: "Filter already applied below the join (pushed down onto one side's scan)"
+      requires_absent_nearby: "SortMergeJoin"
+      window: 8
+    - match: "Filter"
+      concept: filter-not-pushed
+      label: "Filter still pending above the join (blocked from push-down -- see the UDF eval nearby)"
+    - match: "BatchEvalPython"
+      concept: python-udf-eval
+      label: "Python UDF evaluation (opaque bytecode -- Catalyst cannot reason through this to push the filter using it)"
+    - match: "SortMergeJoin"
+      concept: sort-merge-join
+      label: "Sort-merge join (both sides shuffled + sorted)"
+    - match: "Exchange"
+      concept: shuffle-boundary
+      label: "Shuffle boundary (Exchange)"
+    - match: "Sort"
+      concept: sort
+      label: "Sort (precedes the merge step)"
+
+  stage_metrics:
+    - key: shuffleReadBytes
+      spotlight: true
+    - key: shuffleWriteBytes
+      spotlight: true
+    - key: numTasks
+    - key: executorRunTime
+      spotlight: true
+
+  # Issue #8: true per-task duration quantiles (min/p25/median/p75/max),
+  # alongside executorRunTime's stage-wide aggregate above.
+  task_duration_quantiles: true
