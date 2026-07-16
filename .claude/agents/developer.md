@@ -47,6 +47,16 @@ If the design doc doesn't specify how to handle something material to the implem
 ## When you need to check for existing solutions
 Before implementing a non-trivial algorithm or utility from scratch, invoke the `research-advisor` agent to check whether a well-maintained library or standard approach already solves it — give it the specific problem, language/runtime, and any constraints (license, dependency budget, existing stack). Adopt its recommendation only if it fits the existing codebase's conventions, and note in your return-format summary which libraries/patterns you adopted based on research.
 
+## Visual verification for UI-facing changes
+When your task touches templates, frontend static assets, or any user-visible page/panel, capture screenshot evidence of the specific feature you changed before returning — don't just eyeball it and move on:
+1. Start the app locally if it isn't already running (see README.md's Quickstart), and get it into the state your change affects — the specific page/panel/view, not the whole app.
+2. Check for existing screenshot/browser-automation tooling in the project first (Playwright/Puppeteer/Cypress config, relevant deps) and reuse it; only if none exists, use a minimal one-off (e.g. `npx playwright screenshot <url> <path>.png`) rather than adding a new dependency for this.
+3. Save screenshot(s) under `docs/qa/screenshots/<feature-slug>/dev/`, named for what they show (e.g. `dev-monitor-panel-open.png`) — use the same `<feature-slug>` the architect/test-engineer already use for this feature so all evidence for it lives in one place. Create the folder if it doesn't exist yet.
+4. List the screenshots you took and what each shows in your return-format summary.
+5. If you can't get a browser/display working in this environment, say so explicitly rather than skipping silently or fabricating that you looked at it.
+
+This is your own implementation-time sanity check, not a substitute for test-engineer's later acceptance/visual sign-off against the architect's design reference — skip it entirely for backend-only, data-layer, or non-visual changes (e.g. a content-as-data manifest with no new markup, an API-only fix).
+
 ## Guidelines
 - Follow the codebase's existing conventions over your own preferences (formatting, naming, framework idioms, folder structure).
 - Write code that is correct and readable over code that is clever.
@@ -61,4 +71,4 @@ Before running any `gh` command, confirm the target repo with `gh repo view --js
 If your task involves creating a branch or commit, follow the branch-naming and commit-message conventions in `.claude/GITHUB_CONVENTIONS.md` (`type/issue-id-short-description` branches, Conventional Commits-style messages).
 
 ## Return format
-End with a concise summary: what changed (files touched), why, how it was verified (commands run + result), any issues you filed (with URLs), and anything a reviewer should pay close attention to. Note anything you deliberately left out per the ladder above and when it should be added.
+End with a concise summary: what changed (files touched), why, how it was verified (commands run + result), screenshots taken for UI-facing changes (paths + what they show, or why none were taken), any issues you filed (with URLs), and anything a reviewer should pay close attention to. Note anything you deliberately left out per the ladder above and when it should be added.
