@@ -231,6 +231,19 @@ class TestStageMetricsFragment:
             }
         ]
         monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: stages)
+        # join-strategies opts into task_duration_quantiles (issue #8), which
+        # triggers a second per-stage REST call -- mocked here so this test
+        # doesn't attempt a real network call to :4040.
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "fetch_stage_task_summary",
+            lambda app, stage_id, attempt_id=0, timeout_s=3.0: {
+                "taskMetricsDistributions": {
+                    "quantiles": [0.0, 0.25, 0.5, 0.75, 1.0],
+                    "duration": [50.0, 60.0, 75.0, 90.0, 150.0],
+                }
+            },
+        )
         monkeypatch.setattr(
             annotation_module.app_client,
             "resolve_app",
@@ -244,6 +257,52 @@ class TestStageMetricsFragment:
         assert "12345" in resp.text
         assert "/stages/stage/?id=3&amp;attempt=0" in resp.text or "/stages/stage/?id=3&attempt=0" in resp.text
         assert f"every {config.STAGE_POLL_INTERVAL_S}s" in resp.text  # HTMX polling interval (US-2.2)
+        # True per-task duration quantiles rendered alongside the aggregate
+        # executorRunTime metric above (issue #8), not replacing it.
+        assert "75.0" in resp.text  # median
+
+    def test_quantile_columns_render_when_first_stage_has_none_but_later_stage_does(self, tmp_path, monkeypatch):
+        """Regression for a code-review finding: the header/placeholder used
+        to gate on `stages[0].duration_quantiles` instead of the manifest's
+        opt-in, so a first stage with no quantiles yet (e.g. RUNNING, no
+        `taskMetricsDistributions` populated) hid the header even though a
+        later stage in the same table had real quantile data -- broken
+        column count/alignment. Must key off the manifest flag instead."""
+        annotations_dir = tmp_path / "annotations"
+        _write_checkpoint(annotations_dir, "join-strategies", app_id="app-test-0006")
+
+        stages = [
+            {"stageId": 1, "attemptId": 0, "status": "RUNNING", "shuffleReadBytes": 111},
+            {"stageId": 2, "attemptId": 0, "status": "COMPLETE", "shuffleReadBytes": 222},
+        ]
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: stages)
+
+        def _fetch_stage_task_summary(app, stage_id, attempt_id=0, timeout_s=3.0):
+            if stage_id == 1:
+                return None  # not yet populated for the running stage
+            return {
+                "taskMetricsDistributions": {
+                    "quantiles": [0.0, 0.25, 0.5, 0.75, 1.0],
+                    "duration": [50.0, 60.0, 75.0, 90.0, 150.0],
+                }
+            }
+
+        monkeypatch.setattr(
+            annotation_module.app_client, "fetch_stage_task_summary", _fetch_stage_task_summary
+        )
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "resolve_app",
+            lambda app_id, timeout_s=3.0: AppRef(app_id=app_id, base_url="http://localhost:4040"),
+        )
+
+        with patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
+            resp = client.get("/topics/join-strategies/annotation/stages")
+
+        assert resp.status_code == 200
+        assert "task duration min" in resp.text  # header must still render
+        assert "75.0" in resp.text  # stage 2's real median
+        assert "colspan=\"5\"" in resp.text  # stage 1's placeholder for the missing quantiles
 
     def test_unreachable_rest_api_shows_clear_message(self, tmp_path, monkeypatch):
         annotations_dir = tmp_path / "annotations"
@@ -260,6 +319,58 @@ class TestStageMetricsFragment:
 
         assert resp.status_code == 200
         assert "Could not reach" in resp.text
+
+    def test_topic_without_opt_in_skips_extra_rest_call_and_renders_no_quantiles(self, tmp_path, monkeypatch):
+        """Issue #8: `task_duration_quantiles` is opt-in per topic manifest --
+        a topic that doesn't declare it must not trigger the second
+        `?withSummaries=true` REST call at all, and the stage table must not
+        render the quantile columns."""
+        content_dir = tmp_path / "content"
+        topic_dir = content_dir / "no-quantiles-topic"
+        topic_dir.mkdir(parents=True)
+        manifest = {
+            "id": "no-quantiles-topic",
+            "title": "No Quantiles",
+            "content": "concept.md",
+            "notebook": "notebook.ipynb",
+            "annotation": {"stage_metrics": [{"key": "shuffleReadBytes", "spotlight": True}]},
+        }
+        (topic_dir / "manifest.yaml").write_text(yaml.dump(manifest), encoding="utf-8")
+        (topic_dir / "concept.md").write_text("# ok", encoding="utf-8")
+        (topic_dir / "notebook.ipynb").write_text("{}", encoding="utf-8")
+
+        annotations_dir = tmp_path / "annotations"
+        _write_checkpoint(annotations_dir, "no-quantiles-topic", app_id="app-test-0005")
+
+        stages = [
+            {
+                "stageId": 3,
+                "attemptId": 0,
+                "status": "COMPLETE",
+                "shuffleReadBytes": 12345,
+            }
+        ]
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: stages)
+
+        calls = []
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "fetch_stage_task_summary",
+            lambda app, stage_id, attempt_id=0, timeout_s=3.0: calls.append(stage_id),
+        )
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "resolve_app",
+            lambda app_id, timeout_s=3.0: AppRef(app_id=app_id, base_url="http://localhost:4040"),
+        )
+
+        with patch.object(config, "CONTENT_DIR", content_dir), patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
+            resp = client.get("/topics/no-quantiles-topic/annotation/stages")
+
+        assert resp.status_code == 200
+        assert calls == []  # no extra REST call made
+        assert "task duration min" not in resp.text
+        assert "12345" in resp.text  # the opted-in stage_metrics still render
 
     def test_malformed_stages_shape_shows_clear_message_not_500(self, tmp_path, monkeypatch):
         """Issue #13: fetch_stages() returning an unexpected shape (e.g. a

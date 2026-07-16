@@ -269,6 +269,45 @@ class TestFetchTaskList:
             assert app_client.fetch_task_list(app, stage_id=3) is None
 
 
+class TestFetchStageTaskSummary:
+    """Issue #8: true per-task duration quantiles via the withSummaries=true
+    stage-detail endpoint, distinct from fetch_stages()'s stage list."""
+
+    def test_returns_raw_stage_detail_with_task_metrics_distributions(self):
+        detail = {
+            "stageId": 3,
+            "attemptId": 0,
+            "taskMetricsDistributions": {
+                "quantiles": [0.0, 0.25, 0.5, 0.75, 1.0],
+                "duration": [100.0, 200.0, 250.0, 300.0, 900.0],
+            },
+        }
+        app = app_client.AppRef(app_id="app-1", base_url="http://localhost:4040")
+        with _mock_urlopen(detail):
+            result = app_client.fetch_stage_task_summary(app, stage_id=3, attempt_id=0)
+        assert result == detail
+
+    def test_queries_the_withsummaries_endpoint_for_the_given_stage_and_attempt(self):
+        app = app_client.AppRef(app_id="app-1", base_url="http://localhost:4041")
+        captured_urls = []
+
+        def _fake_urlopen(url, timeout=None):
+            captured_urls.append(url)
+            return _FakeResponse({})
+
+        with patch("urllib.request.urlopen", side_effect=_fake_urlopen):
+            app_client.fetch_stage_task_summary(app, stage_id=5, attempt_id=1)
+
+        assert captured_urls[0] == (
+            "http://localhost:4041/api/v1/applications/app-1/stages/5/1?withSummaries=true"
+        )
+
+    def test_unreachable_endpoint_returns_none(self):
+        app = app_client.AppRef(app_id="app-1", base_url="http://localhost:4040")
+        with patch("urllib.request.urlopen", side_effect=TimeoutError()):
+            assert app_client.fetch_stage_task_summary(app, stage_id=3) is None
+
+
 class TestStageUiUrl:
     def test_deep_links_to_specific_stage_not_landing_page(self):
         app = app_client.AppRef(app_id="app-1", base_url="http://localhost:4040")

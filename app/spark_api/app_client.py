@@ -9,11 +9,11 @@ talks to the running driver's own Spark UI REST surface
   - per-stage runtime metrics (US-2.2) -- `shuffleReadBytes`,
     `shuffleWriteBytes`, `numTasks`, spill bytes, etc., used as returned,
     never re-derived/estimated. `executorRunTime` (this stage's task-time
-    total, summed across all tasks) stands in for US-2.2's "per-task
-    duration summary" -- it's a real, REST-API-sourced aggregate, not a true
-    per-task quantile distribution (min/p25/p50/p75/max), which would need
-    the separate `/stages/<id>/<attempt>?withSummaries=true` endpoint. Left
-    as a follow-up (see the filed issue) rather than in scope here;
+    total, summed across all tasks) is a real, REST-API-sourced aggregate,
+    shown alongside the true per-task duration quantiles (min/p25/median/
+    p75/max) `fetch_stage_task_summary()` gets from the separate
+    `/stages/<id>/<attempt>?withSummaries=true` endpoint's
+    `taskMetricsDistributions.duration` (issue #8);
   - a deep-link URL builder into the real per-stage Spark UI page (not just
     the app landing page).
 
@@ -170,6 +170,25 @@ def fetch_stages(app: AppRef, timeout_s: float = 3.0) -> Optional[List[Dict[str,
     "is this shaped right" check belongs with whoever iterates it (see
     `app.web.routes.annotation._stage_rows`)."""
     url = f"{app.base_url}/api/v1/applications/{app.app_id}/stages"
+    return _get_json(url, timeout_s)
+
+
+def fetch_stage_task_summary(
+    app: AppRef, stage_id: int, attempt_id: int = 0, timeout_s: float = 3.0
+) -> Optional[Dict[str, Any]]:
+    """Single stage-attempt detail from
+    `/api/v1/applications/<id>/stages/<id>/<attempt>?withSummaries=true`
+    (issue #8 follow-up to US-2.2). Unlike `fetch_stages()`'s stage *list*
+    endpoint, `withSummaries=true` here adds a `taskMetricsDistributions`
+    block with true per-task quantiles -- `taskMetricsDistributions.duration`
+    is a 5-element list of task *wall-clock* duration values at quantiles
+    `[0, 0.25, 0.5, 0.75, 1.0]` (min/p25/median/p75/max), the actual per-task
+    spread `executorRunTime` (a stage-wide sum) can't show. Queried against
+    `app.base_url` (issue #24), same "unreachable vs. unexpected shape"
+    contract as the rest of this module -- passed through unvalidated, shape
+    checking belongs with the caller (see
+    `app.annotation.engine.spotlight_task_duration_quantiles`)."""
+    url = f"{app.base_url}/api/v1/applications/{app.app_id}/stages/{stage_id}/{attempt_id}?withSummaries=true"
     return _get_json(url, timeout_s)
 
 

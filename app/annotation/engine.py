@@ -76,3 +76,33 @@ def spotlight_stage_metrics(stage: Dict[str, Any], manifest: AnnotationManifest)
     for rule in manifest.stage_metrics:
         result[rule.key] = {"value": stage.get(rule.key), "spotlight": rule.spotlight}
     return result
+
+
+_QUANTILE_LABELS = ("min", "p25", "median", "p75", "max")
+
+
+def spotlight_task_duration_quantiles(
+    stage_detail: Optional[Dict[str, Any]], manifest: AnnotationManifest
+) -> Optional[Dict[str, Any]]:
+    """True per-task duration quantiles (issue #8) from a single stage
+    attempt's `?withSummaries=true` detail (`fetch_stage_task_summary()`),
+    distinct from `spotlight_stage_metrics()`'s stage-wide aggregates.
+    `taskMetricsDistributions.duration` is Spark's 5-element per-task
+    wall-clock duration distribution at quantiles `[0, 0.25, 0.5, 0.75, 1.0]`;
+    mapped here to `{"min": ..., "p25": ..., "median": ..., "p75": ...,
+    "max": ...}`. Returns None if the topic's manifest didn't opt in
+    (`task_duration_quantiles: true`), the detail fetch failed, or the
+    response isn't shaped as expected (same "unreachable vs. unexpected
+    shape -> degrade gracefully" contract as the rest of this module) --
+    never partially filled."""
+    if not manifest.task_duration_quantiles:
+        return None
+    if not isinstance(stage_detail, dict):
+        return None
+    distributions = stage_detail.get("taskMetricsDistributions")
+    if not isinstance(distributions, dict):
+        return None
+    duration = distributions.get("duration")
+    if not (isinstance(duration, list) and len(duration) == len(_QUANTILE_LABELS)):
+        return None
+    return dict(zip(_QUANTILE_LABELS, duration))

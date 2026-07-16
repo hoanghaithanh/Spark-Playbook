@@ -53,3 +53,7 @@ annotation:
       spotlight: true
     - key: memoryBytesSpilled
     - key: diskBytesSpilled
+
+  # Issue #8: true per-task duration quantiles (min/p25/median/p75/max),
+  # alongside executorRunTime's stage-wide aggregate above.
+  task_duration_quantiles: true

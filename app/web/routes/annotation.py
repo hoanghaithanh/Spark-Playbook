@@ -92,6 +92,17 @@ async def _stale_checkpoint_warning(checkpoint_data: Dict[str, Any]) -> Optional
     return None
 
 
+def _duration_quantiles(app_ref: app_client.AppRef, stage: Dict[str, Any], manifest) -> Optional[Dict[str, Any]]:
+    """Issue #8: a second REST call per stage (`?withSummaries=true`),
+    made only when the topic's manifest opts in -- skips the extra request
+    entirely for the common case where no manifest declares
+    `task_duration_quantiles: true`."""
+    if not manifest.task_duration_quantiles:
+        return None
+    detail = app_client.fetch_stage_task_summary(app_ref, stage.get("stageId"), stage.get("attemptId", 0))
+    return engine.spotlight_task_duration_quantiles(detail, manifest)
+
+
 def _stage_rows(app_ref: Optional[app_client.AppRef], manifest) -> Optional[List[Dict[str, Any]]]:
     if app_ref is None:
         return None
@@ -112,6 +123,7 @@ def _stage_rows(app_ref: Optional[app_client.AppRef], manifest) -> Optional[List
                 "attemptId": stage.get("attemptId", 0),
                 "status": stage.get("status"),
                 "metrics": engine.spotlight_stage_metrics(stage, manifest),
+                "duration_quantiles": _duration_quantiles(app_ref, stage, manifest),
                 "ui_url": app_client.stage_ui_url(app_ref, stage.get("stageId"), stage.get("attemptId", 0)),
             }
         )
@@ -123,6 +135,7 @@ async def _stages_context(request: Request, topic, checkpoint_data: Optional[Dic
         "request": request,
         "topic": topic,
         "poll_interval_s": config.STAGE_POLL_INTERVAL_S,
+        "quantiles_enabled": False,
     }
     try:
         manifest = load_annotation_manifest(topic.id)
@@ -165,7 +178,13 @@ async def _stages_context(request: Request, topic, checkpoint_data: Optional[Dic
     return {
         **base,
         "app_id": app_id,
-        "stages": _stage_rows(app_ref, manifest),
+        "quantiles_enabled": manifest.task_duration_quantiles,
+        # Issue #8 follow-up: fetch_stage_task_summary() (called inside
+        # _stage_rows()) is a second blocking REST call per stage, on top of
+        # the pre-existing fetch_stages() call -- same event-loop-freezing
+        # hazard as resolve_app()/resolve_current_app() above, so offload the
+        # whole synchronous helper the same way.
+        "stages": await asyncio.to_thread(_stage_rows, app_ref, manifest),
         "manifest_error": None,
     }
 

@@ -21,6 +21,15 @@
         {% for rule_key in stages[0].metrics.keys() %}
         <th class="{{ 'spotlight' if stages[0].metrics[rule_key].spotlight else '' }}">{{ rule_key }}</th>
         {% endfor %}
+        {% if quantiles_enabled %}
+        <!-- Issue #8: true per-task duration quantiles, alongside (not
+             replacing) executorRunTime's stage-wide aggregate above. -->
+        <th>task duration min</th>
+        <th>task duration p25</th>
+        <th>task duration median</th>
+        <th>task duration p75</th>
+        <th>task duration max</th>
+        {% endif %}
         <th></th>
       </tr>
     </thead>
@@ -32,6 +41,15 @@
         {% for rule_key, m in s.metrics.items() %}
         <td class="{{ 'spotlight' if m.spotlight else '' }}">{{ m.value }}</td>
         {% endfor %}
+        {% if s.duration_quantiles %}
+        <td>{{ s.duration_quantiles.min }}</td>
+        <td>{{ s.duration_quantiles.p25 }}</td>
+        <td>{{ s.duration_quantiles.median }}</td>
+        <td>{{ s.duration_quantiles.p75 }}</td>
+        <td>{{ s.duration_quantiles.max }}</td>
+        {% elif quantiles_enabled %}
+        <td colspan="5">—</td>
+        {% endif %}
         <td><a href="{{ s.ui_url }}" target="_blank" rel="noopener">Open stage in Spark UI</a></td>
       </tr>
       {% endfor %}

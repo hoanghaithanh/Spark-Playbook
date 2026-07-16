@@ -1,12 +1,17 @@
 """Tests for app/annotation/engine.py (US-2.1 mapping precedence, US-2.2 spotlighting)."""
 from __future__ import annotations
 
-from app.annotation.engine import annotate_plan, spotlight_stage_metrics
+from app.annotation.engine import annotate_plan, spotlight_stage_metrics, spotlight_task_duration_quantiles
 from app.annotation.manifest import AnnotationManifest, PlanNodeRule, StageMetricRule
 
 
-def _manifest(plan_nodes, stage_metrics=None):
-    return AnnotationManifest(topic_id="test-topic", plan_nodes=plan_nodes, stage_metrics=stage_metrics or [])
+def _manifest(plan_nodes, stage_metrics=None, task_duration_quantiles=False):
+    return AnnotationManifest(
+        topic_id="test-topic",
+        plan_nodes=plan_nodes,
+        stage_metrics=stage_metrics or [],
+        task_duration_quantiles=task_duration_quantiles,
+    )
 
 
 class TestAnnotatePlanPrecedence:
@@ -158,3 +163,41 @@ class TestSpotlightStageMetrics:
         manifest = _manifest([], stage_metrics=[StageMetricRule(key="diskBytesSpilled", spotlight=False)])
         spotlighted = spotlight_stage_metrics({}, manifest)
         assert spotlighted["diskBytesSpilled"]["value"] is None
+
+
+class TestSpotlightTaskDurationQuantiles:
+    """Issue #8: true per-task duration quantiles from a
+    ?withSummaries=true stage detail, distinct from spotlight_stage_metrics'
+    stage-wide aggregates."""
+
+    def test_extracts_min_p25_median_p75_max_from_duration_distribution(self):
+        manifest = _manifest([], task_duration_quantiles=True)
+        stage_detail = {
+            "taskMetricsDistributions": {
+                "quantiles": [0.0, 0.25, 0.5, 0.75, 1.0],
+                "duration": [100.0, 200.0, 250.0, 300.0, 900.0],
+            }
+        }
+        result = spotlight_task_duration_quantiles(stage_detail, manifest)
+        assert result == {"min": 100.0, "p25": 200.0, "median": 250.0, "p75": 300.0, "max": 900.0}
+
+    def test_manifest_not_opted_in_returns_none(self):
+        manifest = _manifest([], task_duration_quantiles=False)
+        stage_detail = {"taskMetricsDistributions": {"duration": [1, 2, 3, 4, 5]}}
+        assert spotlight_task_duration_quantiles(stage_detail, manifest) is None
+
+    def test_missing_task_metrics_distributions_returns_none(self):
+        manifest = _manifest([], task_duration_quantiles=True)
+        assert spotlight_task_duration_quantiles({}, manifest) is None
+
+    def test_none_stage_detail_returns_none_not_raises(self):
+        manifest = _manifest([], task_duration_quantiles=True)
+        assert spotlight_task_duration_quantiles(None, manifest) is None
+
+    def test_malformed_duration_shape_returns_none(self):
+        """Wrong-length list (not the expected 5 quantile points) is treated
+        as an unexpected shape, same degrade-gracefully contract as the rest
+        of the annotation engine -- never partially filled."""
+        manifest = _manifest([], task_duration_quantiles=True)
+        stage_detail = {"taskMetricsDistributions": {"duration": [1, 2, 3]}}
+        assert spotlight_task_duration_quantiles(stage_detail, manifest) is None

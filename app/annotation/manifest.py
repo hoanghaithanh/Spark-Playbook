@@ -51,6 +51,16 @@ class AnnotationManifest:
     topic_id: str
     plan_nodes: List[PlanNodeRule] = field(default_factory=list)
     stage_metrics: List[StageMetricRule] = field(default_factory=list)
+    # Issue #8: distinct from stage_metrics (which spotlights single-value
+    # REST fields as-is) -- opts a topic into the true per-task duration
+    # quantile distribution (min/p25/median/p75/max), which needs a second
+    # REST call per stage (`fetch_stage_task_summary`) rather than a key
+    # lookup on the stage list already fetched for stage_metrics. A single
+    # boolean, not a list of keys like stage_metrics: there's exactly one
+    # quantile distribution Spark's REST API exposes this way (task
+    # duration), so a per-key list would be a parallel mechanism with
+    # nothing else to key on.
+    task_duration_quantiles: bool = False
 
 
 def _parse_plan_node(raw: Any, topic_id: str, index: int) -> PlanNodeRule:
@@ -127,4 +137,11 @@ def load_annotation_manifest(topic_id: str) -> AnnotationManifest:
         raise ManifestError(f"{topic_id}: annotation.stage_metrics must be a list")
     stage_metrics = [_parse_stage_metric(r, topic_id, i) for i, r in enumerate(stage_metrics_raw)]
 
-    return AnnotationManifest(topic_id=topic_id, plan_nodes=plan_nodes, stage_metrics=stage_metrics)
+    task_duration_quantiles = bool(raw.get("task_duration_quantiles", False))
+
+    return AnnotationManifest(
+        topic_id=topic_id,
+        plan_nodes=plan_nodes,
+        stage_metrics=stage_metrics,
+        task_duration_quantiles=task_duration_quantiles,
+    )

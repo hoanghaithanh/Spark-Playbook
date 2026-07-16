@@ -42,6 +42,12 @@ class TestLoadRealJoinStrategiesManifest:
         assert "shuffleReadBytes" in keys
         assert "shuffleWriteBytes" in keys
 
+    def test_task_duration_quantiles_opted_in(self):
+        """Issue #8: join-strategies opts into the true per-task duration
+        quantile distribution alongside stage_metrics' executorRunTime."""
+        manifest = load_annotation_manifest("join-strategies")
+        assert manifest.task_duration_quantiles is True
+
 
 class TestValidManifest:
     def test_full_rule_set(self, tmp_path):
@@ -88,6 +94,14 @@ class TestValidManifest:
             manifest = load_annotation_manifest("no-annotation-topic")
         assert manifest.plan_nodes == []
         assert manifest.stage_metrics == []
+        assert manifest.task_duration_quantiles is False
+
+    def test_task_duration_quantiles_parsed_true(self, tmp_path):
+        annotation = {"task_duration_quantiles": True}
+        _write_topic(tmp_path, "quantile-topic", annotation)
+        with patch.object(config, "CONTENT_DIR", tmp_path):
+            manifest = load_annotation_manifest("quantile-topic")
+        assert manifest.task_duration_quantiles is True
 
 
 class TestInvalidManifest:
