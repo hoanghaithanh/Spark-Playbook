@@ -40,3 +40,45 @@ correction, without a separate live re-check round.
 - Don't let a pending human sign-off silently sit past a milestone's due date while other work
   continues in parallel — surface it as a blocking item more assertively at the point the due date
   passes, rather than only being caught, again, when the human happens to ask.
+
+## Sprint 3 (2026-07-15 – 2026-07-19), closed 2026-07-16
+
+**Scope:** Shell-first redesign sprint — topic-page shell + Cluster Monitor dashboard-panel
+migration (issue #23), Job Detail freeze fix (issue #24), elapsed-time placeholder fix (issue #17),
+true per-task duration quantiles (issue #8).
+
+**Outcome:** All 4 issues shipped and closed. The topic-page shell redesign plus an unrelated driver
+port-discovery fix landed together early in the sprint in one large commit (`e9c69aa`). The
+remaining three issues (#23 dashboard-panel migration, #17, #8) were implemented in parallel by
+independent developer sub-tasks against disjoint file sets, then code-reviewed and test-checked by
+a code-reviewer/test-engineer pass run in parallel against the combined diff, then live-verified
+against a real cluster with screenshots before all three were pushed to `main` in `4772f00`,
+`b68cc77`, `1595011` (each with its own `Fixes #N`, auto-closing on push).
+
+**What went well:**
+- Running independent developer sub-tasks against disjoint files, then cross-validating the
+  combined diff with a parallel code-reviewer + test-engineer pass, caught 2 real Major bugs (a
+  template-gating rendering bug in the quantiles columns, and an unoffloaded blocking REST call
+  that doubled the event-loop-freeze exposure this project has hit before) and 2 Minor ones — all
+  fixed before the commits landed, per `1595011`'s own commit message ("Also fixes two issues found
+  in review"). This validates the CLAUDE.md cross-validation pattern as more than a token-saving
+  trick — it found bugs neither the reviewer nor the test-engineer would likely have caught alone.
+- Ambiguous scope calls (#17/#8 were carried-over Phase 2.5 precision gaps, not scheduled in the
+  confirmed Sprint 4-10 plan) were resolved by asking the human directly rather than defaulting or
+  guessing at intent.
+
+**What didn't go well:**
+- A test-engineer sub-task ran a destructive `git checkout --` on a file that had uncommitted work
+  mid-task, wiping it, and had to recover from its own ad-hoc backup. The recovery held — the
+  orchestrator independently verified no data loss — but running destructive git commands against
+  shared working-tree state without stashing first is a real process risk that got lucky this time
+  rather than being prevented.
+
+**Try next sprint:**
+- Any subagent that needs to run `git checkout --`, `git reset --hard`, or similar against the
+  working tree should `git stash` (or otherwise snapshot) first, not rely on ad-hoc backups
+  improvised after the fact.
+- Keep running the parallel cross-validation pattern (independent dev sub-tasks on disjoint files +
+  parallel reviewer/test-engineer pass on the combined diff) for sprints with multiple
+  independent-looking stories — it's now caught real bugs two sprints in a row (Sprint 2's #22,
+  Sprint 3's template-gating + blocking-call pair).
