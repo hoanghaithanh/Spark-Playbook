@@ -117,6 +117,38 @@ def _alert_title_for(node: NodeStat, skew_reasons: Dict[str, str], imbalance_rea
     return f"{category} detected on {node.name}"
 
 
+def _parse_launch_time(launch_time: Optional[str]) -> Optional[datetime]:
+    """Parse Spark REST's `launchTime` (ISO8601 with a trailing "GMT" instead
+    of "Z"/an offset, e.g. "2024-01-01T12:00:00.000GMT"): strips the
+    trailing "GMT", parses with `%Y-%m-%dT%H:%M:%S.%f`, and attaches UTC.
+    Returns `None` (never fabricates a value) on anything missing/unparseable
+    (a `ValueError` from `strptime`), per issue #17."""
+    if not launch_time:
+        return None
+    text = str(launch_time)
+    if text.endswith("GMT"):
+        text = text[: -len("GMT")]
+    try:
+        return datetime.strptime(text, "%Y-%m-%dT%H:%M:%S.%f").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _running_time_label(raw: dict) -> str:
+    """Issue #17: a RUNNING task with no `duration` yet should show elapsed
+    time (`now - launchTime`), not the bare "running..." placeholder --
+    US-5.2 c1's parenthetical "or elapsed time for still-running tasks".
+    Falls back to "running..." (never fabricating a duration) when
+    `launchTime` is missing or unparseable, or the task isn't RUNNING."""
+    if raw.get("status") != "RUNNING":
+        return "running…"
+    launch = _parse_launch_time(raw.get("launch_time"))
+    if launch is None:
+        return "running…"
+    elapsed_s = (datetime.now(timezone.utc) - launch).total_seconds()
+    return eta.format_seconds(elapsed_s)
+
+
 def _select_current_stage(stages_raw: List[dict]) -> Optional[dict]:
     """The running stage if any, else the most recently completed one
     (US-5.2 c3 -- "most recently completed stage" retention boundary, ADR
@@ -474,6 +506,7 @@ class DashboardCollector:
                 "duration_s": duration_s,
                 "retries": retries_by_index.get(idx, 0),
                 "status": t.get("status"),
+                "launch_time": t.get("launchTime"),
             }
 
         skewed_ids = diagnostics.skewed_task_ids(task_samples)
@@ -494,7 +527,7 @@ class DashboardCollector:
                 else config.DASHBOARD_COLOR_GREEN
             )
             is_skewed = ts.task_id in skewed_ids
-            time_label = f"{ts.duration_s:.0f}s" if ts.duration_s is not None else "running…"
+            time_label = f"{ts.duration_s:.0f}s" if ts.duration_s is not None else _running_time_label(raw)
             retries = raw["retries"]
             partition_rows.append(
                 PartitionRow(
