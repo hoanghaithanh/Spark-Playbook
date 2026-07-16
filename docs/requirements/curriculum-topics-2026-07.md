@@ -3,7 +3,10 @@
 Status: Draft for architect handoff
 Owner: requirements-analyst
 Date: 2026-07-15 (updated 2026-07-15 — Catalyst exclusion note and the annotation-engine open
-question both updated with settled/preferred decisions; see inline markers)
+question both updated with settled/preferred decisions; see inline markers) (updated again
+2026-07-15, same day — added **US-C10 Memory Management**, closing a gap where
+`topics-content-spec.md`'s "07 — Memory Management" section had never been turned into a user
+story; see inline markers)
 
 ## Source and relationship to existing docs
 
@@ -12,17 +15,19 @@ the imported Claude Design mockups), per the human's 2026-07-15 decision to adop
 full topic set as real backlog scope rather than treating the redesign as a pure UI reskin (see
 `docs/architecture/redesign-2026-07/README.md`).
 
-This doc covers **nine topics**, split two ways:
+This doc covers **ten topics**, split two ways:
 
 - **Six genuinely new topics**, not previously in `docs/backlog.md` at all: DAG & Lazy Evaluation,
   Skew & Salting, Executor Tuning, Checkpointing, Serialization Formats, Fault Tolerance &
   Lineage.
-- **Three topics already scoped but only as thin one-line entries** in
+- **Four topics already scoped but only as thin/underspecified entries** in
   `docs/requirements/spark-playbook-mvp.md` (US-4.1 Caching/persistence, US-4.2 Window functions,
-  US-3.3 Structured Streaming) — this doc **extends and supersedes those three stories'
+  US-3.3 Structured Streaming, and — added 2026-07-15, same day, as a correction, see below —
+  US-4.4 Memory management & spill) — this doc **extends and supersedes those four stories'
   acceptance criteria** with the concrete concept/notebook/self-check content the mockup now
   provides. It does not change those topics' phase placement, resource assumptions, or (for
-  Structured Streaming) its Kafka dependency — see Constraints.
+  Structured Streaming) its Kafka dependency; for Memory Management it does not relax or replace
+  US-4.4's existing spill/OOM-diagnosis criteria — see Constraints.
 
 Two other mockup topics — Spark SQL Catalyst and Partitioning & Shuffle Mechanics — are excluded
 from this doc entirely. Partitioning & Shuffle Mechanics maps to already-built content (backlog
@@ -31,25 +36,33 @@ Spark SQL Catalyst (backlog #4) was flagged, as of this doc's original 2026-07-1
 status discrepancy — marked "Done" but with no dedicated `content/` folder. **Settled 2026-07-15:**
 it is now real, scoped content-build work, not just a status correction — see
 `docs/requirements/topic-shell-redesign.md`'s US-SH8 and backlog #31. It remains outside this
-doc's nine topics (it's tracked in `topic-shell-redesign.md` instead, since it's bundled with the
+doc's ten topics (it's tracked in `topic-shell-redesign.md` instead, since it's bundled with the
 shell/topic-page build), not because it turned out to be a pure shell-migration item after all.
 
-Four other backlogged-but-unbuilt topics — UDF vs pandas UDF (#16), Memory management & spill
-(#17), Delta/Iceberg (#20), Tuning/debugging capstone (#21) — are **not** covered by the mockup
-and are unaffected by this doc; their existing `spark-playbook-mvp.md` acceptance criteria stand
-as-is.
+Three other backlogged-but-unbuilt topics — UDF vs pandas UDF (#16), Delta/Iceberg (#20),
+Tuning/debugging capstone (#21) — are **not** covered by the mockup and are unaffected by this
+doc; their existing `spark-playbook-mvp.md` acceptance criteria stand as-is.
+
+**Correction, 2026-07-15 (same day).** This doc originally also listed Memory management & spill
+(#17) in the "unaffected" group above. That was wrong: `topics-content-spec.md` has a
+"07 — Memory Management" section (unified memory manager, execution-vs-storage eviction under
+contention) that was never turned into a user story anywhere. It is now covered below as
+**US-C10**, in the four-already-scoped-topics group above (alongside Caching, Window Functions,
+and Structured Streaming), not in this three-topic unaffected list. Backlog row #17 and the
+backlog itself have been updated accordingly (new row #32).
 
 ## Problem statement
 
 Six topics core to Spark interview depth — the DAG/laziness model, skew mitigation via salting,
 executor sizing, checkpointing/lineage truncation, columnar vs row-oriented file formats, and
 fault-tolerance/recomputation semantics — have no requirements coverage today; they exist only as
-mockup content with no backlog entry. Separately, three already-backlogged topics (caching,
-window functions, structured streaming) have sat as single-line backlog placeholders pointing at
-the MVP doc's fairly thin original acceptance criteria, with no concrete concept/notebook/self-check
-content to build against until now. This doc gives all nine topics the same level of concrete,
-testable acceptance criteria the already-built topics (join-strategies, bucketing, AQE) have,
-sourced from the mockup's extracted content rather than invented from scratch.
+mockup content with no backlog entry. Separately, four already-backlogged topics (caching, window
+functions, structured streaming, and memory management/spill) have sat as backlog entries pointing
+at the MVP doc's original, fairly thin acceptance criteria, with no concrete
+concept/notebook/self-check content to build against until now. This doc gives all ten topics the
+same level of concrete, testable acceptance criteria the already-built topics (join-strategies,
+bucketing, AQE) have, sourced from the mockup's extracted content rather than invented from
+scratch.
 
 ## Goals / Non-goals
 
@@ -84,8 +97,10 @@ sourced from the mockup's extracted content rather than invented from scratch.
   designed here.
 - **No change to Structured Streaming's Phase 3/Kafka sequencing dependency** (backlog #19 must
   ship first) — this doc only refines *what* the topic teaches, not *when* it can be built.
-- **No change to the four unaffected topics** (UDF/pandas UDF #16, memory/spill #17, Delta/Iceberg
-  #20, tuning capstone #21) — out of scope, not touched by the mockup or this doc.
+- **No change to the three unaffected topics** (UDF/pandas UDF #16, Delta/Iceberg #20, tuning
+  capstone #21) — out of scope, not touched by the mockup or this doc. (Memory management/spill
+  #17 is **no longer** in this unaffected group — see the Source-and-relationship correction above
+  and US-C10 below.)
 
 ## User stories and acceptance criteria
 
@@ -262,11 +277,58 @@ resilience-through-recomputation concretely rather than as a textbook claim.
   plan-node concept at all, and **today's annotation engine has never been asked to label
   something that isn't a static plan node.** Flagged as a real, likely engine-level gap in Open
   Question 1, where the human's stated preference is to extend the engine to cover it, pending
-  architect confirmation — this doc does not assume it's solvable with a manifest entry.
+  architect confirmation — this doc does not assume it's solvable with a manifest entry alone.
 - **How a learner safely kills a worker process from a self-serve local tool is not decided by
   this doc.** See Open Question 2 — this is a UX/safety design question, not a content question,
   and this doc's acceptance criteria describe the *pedagogical* target (what the learner should
   observe), not the mechanism for triggering the failure.
+
+**US-C10 — Memory Management topic** *(supersedes/extends US-4.4 in `spark-playbook-mvp.md`;
+added 2026-07-15, same day, as a correction — see the Source-and-relationship note above)*.
+As a learner, I want a topic on the unified memory manager — execution memory and storage memory
+sharing one region governed by `spark.memory.fraction`, and what happens to a cached DataFrame
+when a memory-hungry shuffle competes for that same pool — so I understand that
+`OutOfMemoryError`/spill is almost always a memory-tuning problem, not a "need a bigger cluster"
+problem.
+
+- *Given* the topic notebook, *when* I cache a ~3GB feature table with `.cache()` + `.count()` to
+  force materialization, *then* the Storage tab / REST equivalent shows the DataFrame fully
+  cached in memory (reusing the same materialization-confirmation pattern already established by
+  US-C5's Caching topic).
+- *Given* the cached DataFrame, *when* I then run a memory-hungry shuffle (a large sort or
+  `groupBy`) that needs execution memory from the same shared pool, *then* the Executors tab /
+  REST equivalent shows some previously-cached storage blocks evicted to make room — the notebook
+  must capture this as a measured before/after state (cached fraction dropping), not just
+  describe eviction in prose.
+- *Given* the now-partially-evicted DataFrame, *when* I re-run the original cached query, *then*
+  the topic notebook captures a partial-recompute signal — per `topics-content-spec.md`'s stated
+  target ("3 of 8 partitions evicted"), some partitions return instantly (still cached) while
+  others measurably recompute, rather than the query being uniformly fast or uniformly slow.
+- *Given* this topic's relationship to the existing Caching & Persistence topic (US-C5), *when*
+  the concept content is written, *then* it explicitly distinguishes storage memory (what US-C5
+  covers — caching a DataFrame) from execution memory (shuffles/joins/sorts/aggregations) as two
+  regions sharing one pool under `spark.memory.fraction`, with execution memory winning
+  contention — not a restatement of US-C5's cache-timing content.
+- *Given* US-4.4's existing spill/OOM-diagnosis criteria (a deliberately under-provisioned
+  executor triggering OOM; spill metrics from a memory-constrained sort/aggregation), *when* this
+  topic's notebook and self-check hypothesis are authored, *then* they explicitly connect back to
+  those criteria — this doc does not relax or replace them, only adds the mockup's concrete
+  eviction-under-contention walkthrough and self-check hypothesis on top.
+- *Given* the Self-check tab, *when* the learner hypothesizes whether the cached DataFrame reads
+  instantly or partially recomputes after the competing shuffle, and clicks Reveal, *then* the
+  evidence needed is **per-executor storage-vs-execution memory usage**, live REST data
+  (`memoryMetrics`/`memoryUsed` from `/api/v1/applications/<id>/executors` — the same endpoint
+  family already reused for Executor Tuning's GC-time evidence — plus the RDD storage endpoint
+  already used for US-C5's "fraction cached" criterion). This is executor-/RDD-level runtime data,
+  not a plan-node concept: there is no distinctive plan shape that signals "eviction happened,"
+  only a change in live memory-usage numbers between two reveals. Per Open Question 1's resolution
+  (`docs/architecture/topic-shell-redesign.md` Decision A), this topic's need is the same *nature*
+  of signal as **Executor Tuning (US-C3)** — a longitudinal/point-in-time executor-level runtime
+  metric, not a static plan-structure fact — so it gets the same disposition: a reveal-time REST
+  pull reusing `app_client.fetch_executors()` (and the existing RDD-storage fetch), through the
+  `executor_metrics` manifest mechanism Decision A already introduces for US-C3. **This is not a
+  plan-node matcher extension, and applying Decision A's already-settled dividing line here does
+  not require a fresh architect round** — see Open Question 1 for the explicit disposition note.
 
 ## Open questions
 
@@ -285,6 +347,16 @@ resilience-through-recomputation concretely rather than as a textbook claim.
      and pull-not-push (same UX the human wanted), but the data plumbing is reused from
      `app/monitoring/` rather than rebuilt inside `app/annotation/`. See backlog.md rows #27/#28/#30
      for the settled per-topic disposition.
+   - **Memory Management (US-C10), added 2026-07-15 same day as a doc-gap correction — not part
+     of the original architect consult, but disposed without a fresh architect round.** Applying
+     Decision A's dividing line directly: per-executor storage-vs-execution memory usage is
+     executor-level runtime data, not a plan-node fact, exactly matching Executor Tuning's
+     disposition. It routes through the same reveal-time REST pull / `executor_metrics` manifest
+     mechanism as US-C3, reusing `app_client.fetch_executors()` plus the RDD-storage fetch already
+     used by US-C5's Caching topic. No new architect round is needed; this would only need to be
+     revisited if the eviction/partial-recompute evidence turns out to need a capability beyond
+     what `executor_metrics` and the existing storage endpoint already provide (no such gap is
+     apparent from the mockup's stated target evidence). See backlog.md row #32.
 2. **Kill-a-worker / restart-a-query safety UX (Fault Tolerance & Lineage, Structured Streaming).**
    Both topics' notebook walkthroughs involve killing or restarting a live process
    (`kill -9` on a worker container; stopping/restarting a streaming query). Neither this doc nor
@@ -298,8 +370,8 @@ resilience-through-recomputation concretely rather than as a textbook claim.
    #19 (conditional Kafka in the compose template) ships, regardless of sprint capacity elsewhere
    in this doc's scope.
 4. **G1 tension (curriculum depth vs. platform polish) — see `topic-shell-redesign.md`'s own
-   section on this.** Six of this doc's nine stories (all but Caching, Window Functions, and
-   Structured Streaming, which were already backlogged) are exactly the kind of new
+   section on this.** Six of this doc's ten stories (all but Caching, Window Functions, Structured
+   Streaming, and Memory Management, which were already backlogged) are exactly the kind of new
    interview-depth content G1 says should win over platform-polish effort when the two compete for
    the same sprint capacity. This doc does not resolve the sequencing between this curriculum work
    and the shell redesign — that's a sprint-planning call for the human/project-manager, informed
@@ -314,10 +386,12 @@ resilience-through-recomputation concretely rather than as a textbook claim.
   integration) — cannot be built standalone ahead of the Kafka harness, per PLAN.md's Phase 3
   ordering, unchanged by this doc.
 - **Resource budget is unchanged** (MVP doc's resource budget section, 64GB host ceiling, 32GB
-  implemented resource-ceiling check) — none of these nine topics' notebooks should require
+  implemented resource-ceiling check) — none of these ten topics' notebooks should require
   cluster configurations outside the existing supported ranges (workers 1–5, cores 1–4, memory
   1–8GB) unless a specific topic's exercise explicitly needs the existing "single worker scaled up
-  to 8GB" skew/spill allowance already established for Phase 4 topics.
+  to 8GB" skew/spill allowance already established for Phase 4 topics (Memory Management's ~3GB
+  cached table plus a competing shuffle is the kind of exercise that may need this allowance,
+  same as the original US-4.4 spill/OOM criteria already assumed).
 - **Pages render through the shared shell** defined in `docs/requirements/topic-shell-redesign.md`
   — this doc assumes that shell exists or is being built concurrently; it does not specify any
   page-level UI itself.
