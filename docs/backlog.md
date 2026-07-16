@@ -42,6 +42,24 @@ Ordered top-to-bottom by priority. Entries move out of this list into a sprint m
 | 31 | Curriculum topic: Spark SQL Catalyst — dedicated `content/catalyst-plans/` topic page (parse→analyze→optimize→physical-plan phases, DataFrame/SQL/UDF predicate-pushdown comparison, three-cell notebook walkthrough), built through the new topic-page shell; resolves backlog #4's status discrepancy — no change needed to `content/join-strategies/` (confirmed its "Catalyst optimizer" mention is unrelated passing vocabulary, not source content) | M | [docs/requirements/topic-shell-redesign.md](requirements/topic-shell-redesign.md) (US-SH8) | In sprint (Sprint 3) |
 | 32 | Curriculum topic: Memory Management — unified memory manager, execution memory vs. storage memory sharing one region via `spark.memory.fraction`; eviction-under-contention notebook (cache a large DataFrame, run a competing memory-hungry shuffle, confirm partial recompute of evicted cached partitions); self-check evidence source **determined by requirements-analyst 2026-07-15, applying the architect's already-approved Decision A precedent (no fresh architect round needed)**: reveal-time pull from `app_client.fetch_executors()` (per-executor storage-vs-execution memory usage) plus the existing RDD-storage fetch already used by the Caching topic (#14) — same disposition as Executor Tuning (#27), NOT a plan-matcher extension — see `docs/architecture/topic-shell-redesign.md` Decision A and `curriculum-topics-2026-07.md` Open Question 1 | M | [docs/requirements/curriculum-topics-2026-07.md](requirements/curriculum-topics-2026-07.md) (US-C10) | Backlog — new story, 2026-07-15 (added same day as a correction closing a gap in this doc's original nine-topic scope; see row #17) |
 
+## Confirmed sprint plan (2026-07-16, human-approved, not yet milestoned)
+
+project-manager proposed, human confirmed: Sprints 4-10 below. **Gated — do not create Sprint 4's
+milestone until Sprint 3 (GitHub milestone, still open, due 2026-07-18) closes** — its 4 open
+issues (#23 dashboard-panel migration — unblocked, unbuilt; #24 Job Detail freeze — fixed, closed;
+#17; #8) need disposition first.
+
+1. **Sprint 4** — #31 Catalyst plans (M), #24 topics-index (S), in that order (#24 depends on #31).
+2. **Sprint 5** — #25 DAG & Lazy Evaluation, #29 Serialization Formats, #14 Caching, #15 Window Functions (4×S).
+3. **Sprint 6** — #27 Executor Tuning, #32 Memory Management, #26 Skew & Salting (3×M) — #27/#32 share the same new reveal-time REST-pull mechanism, pair to avoid re-deriving it.
+4. **Sprint 7** — #28 Checkpointing (M, solo — different engine-extension style, plan-node rule not REST pull).
+5. **Gap before Sprint 8** — architect/design pass to resolve Open Question 2 in `curriculum-topics-2026-07.md` (worker-kill / query-restart safety UX), blocking #30 and #18.
+6. **Sprint 8** — #30 Fault Tolerance & Lineage (L, solo).
+7. **Sprint 9** — #19 Kafka infra (L).
+8. **Sprint 10** — #18 Structured Streaming (L), only after #19 ships.
+
+Untouched: #16, #20, #21 — not part of the design import.
+
 ## Known issues / watch-items
 
 Non-feature operational notes that don't need a story/acceptance-criteria entry in the table above, but are worth tracking if they recur.
