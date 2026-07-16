@@ -1,16 +1,22 @@
 """Spark Playbook — realtime cluster monitoring dashboard routes (US-5.1-5.6,
-ADR D-B, D-E).
+ADR D-B, D-E; topic-shell redesign US-SH4, Decision B, issue #23).
 
-Standalone page at `/dashboard` (ADR D-E) -- not embedded in a topic page or
-the cluster control panel. Two routes:
+The standalone `/dashboard` page is retired (US-SH4) -- the Cluster Monitor
+panel embedded in the topic-page shell (`shell.html`) is the sole entry
+point now. Three routes:
 
-  - GET  /dashboard         full page: top bar + all three views (client-side
-                             switched, ADR D-B) + the SSE listener element.
+  - GET  /dashboard         307 redirect to `/topics/<first-topic>?monitor=open`
+                             (reusing `topics.index`'s first-topic resolution),
+                             so existing bookmarks/links land on a real page
+                             with the panel auto-opened (Decision B2) instead
+                             of dead-ending.
+  - GET  /dashboard/panel   the panel body: top bar + all three views
+                             (client-side switched, ADR D-B) + the SSE
+                             listener element (`dashboard/_dashboard_body.html`).
                              Server-rendered inline with a fresh snapshot so
                              the first paint isn't blank while waiting for
-                             the first SSE push (mirrors topics.py's own
-                             "server-rendered inline with fresh status"
-                             convention).
+                             the first SSE push. Fetched by the shell's
+                             Cluster Monitor panel on open.
   - GET  /dashboard/stream  the SSE feed (`text/event-stream`). One
                              connection per client; subscribes to the shared
                              `collector` singleton, which does the actual
@@ -21,13 +27,14 @@ the cluster control panel. Two routes:
                              node's detail block, so a single connection
                              keeps all three views current regardless of
                              which one is currently visible client-side.
+                             Unchanged by the panel migration (Decision B).
 """
 from __future__ import annotations
 
 import asyncio
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from app import config
@@ -35,6 +42,7 @@ from app.lifecycle.manager import ClusterState, manager
 from app.monitoring.collector import collector
 from app.monitoring.model import Snapshot
 from app.spark_api import app_client
+from app.topics import loader
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(config.WEB_TEMPLATES_DIR))
@@ -82,12 +90,23 @@ async def _driver_ui_url() -> str:
     return app_ref.base_url if app_ref else config.DRIVER_APP_UI_URL
 
 
-@router.get("/dashboard", response_class=HTMLResponse)
-async def dashboard_page(request: Request) -> HTMLResponse:
+@router.get("/dashboard")
+async def dashboard_page() -> RedirectResponse:
+    """Retired standalone page (US-SH4, issue #23) -- redirects to the
+    Cluster Monitor panel on a real topic page, reusing `topics.index`'s
+    first-topic resolution (Decision B2) so existing bookmarks/links keep
+    working instead of 404ing."""
+    topics = loader.list_topics()
+    topic_id = topics[0].id if topics else "partitioning-shuffle"
+    return RedirectResponse(url=f"/topics/{topic_id}?monitor=open", status_code=307)
+
+
+@router.get("/dashboard/panel", response_class=HTMLResponse)
+async def dashboard_panel(request: Request) -> HTMLResponse:
     snapshot = await _current_snapshot()
     return templates.TemplateResponse(
         request,
-        "dashboard/page.html",
+        "dashboard/_dashboard_body.html",
         {
             "request": request,
             "snapshot": snapshot,

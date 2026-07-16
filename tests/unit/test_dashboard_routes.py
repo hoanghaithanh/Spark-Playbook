@@ -3,7 +3,8 @@
 `#job-detail-content` / `#node-detail-container`.
 
 Background (see docs/acceptance/phase-2-5.md, Finding 1, and issue #22):
-`app/web/templates/dashboard/page.html` gives these three containers
+`app/web/templates/dashboard/_dashboard_body.html` (formerly `page.html`,
+folded into the Cluster Monitor panel body by issue #23) gives these three containers
 `class="dash-view active"` / `class="dash-view"`, and the client-side view
 switcher (`page.html`'s inline `<script>`) toggles the `active` class to keep
 exactly one view visible at a time (ADR D-B). The three `*_oob.html`
@@ -20,22 +21,28 @@ attribute — is never touched by the swap, only its children.
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 from fastapi.templating import Jinja2Templates
+from fastapi.testclient import TestClient
 
 from app import config
 from app.lifecycle.manager import ClusterState, manager
 from app.lifecycle.renderer import ClusterParams
+from app.main import app
 from app.monitoring import docker_stats
 from app.monitoring.collector import DashboardCollector
 from app.monitoring.docker_stats import ContainerStat
 from app.monitoring.model import JobSummary, Snapshot
 from app.spark_api import app_client
+from app.web.routes import dashboard as dashboard_module
 from app.web.routes.dashboard import _render_oob_payload
 
 templates = Jinja2Templates(directory=str(config.WEB_TEMPLATES_DIR))
 templates.env.globals["config"] = config
+
+client = TestClient(app)
 
 
 def _idle_snapshot() -> Snapshot:
@@ -90,14 +97,14 @@ class TestOobFragmentsPreserveContainerClass:
 
 
 class TestPageDefinesTheClassesTheFragmentsMustNotClobber:
-    """Guards the other half of the contract: `page.html` must still define
-    `dash-view`/`active` classes on these three containers, and the OOB
-    fragments must not also declare a `class` attribute of their own (which
-    would fight with whatever `page.html` set, even under an innerHTML
-    swap)."""
+    """Guards the other half of the contract: `_dashboard_body.html` must
+    still define `dash-view`/`active` classes on these three containers, and
+    the OOB fragments must not also declare a `class` attribute of their own
+    (which would fight with whatever `_dashboard_body.html` set, even under
+    an innerHTML swap)."""
 
     def _render_page(self) -> str:
-        return templates.get_template("dashboard/page.html").render(
+        return templates.get_template("dashboard/_dashboard_body.html").render(
             {
                 "snapshot": _idle_snapshot(),
                 "master_ui_url": "http://localhost:8080",
@@ -235,3 +242,55 @@ class TestResolveCurrentAppFollowsTheMostRecentJob:
 
         assert snapshot.job is not None
         assert snapshot.job.app_id == "app-newer-on-4041"
+
+
+class TestDashboardRedirect:
+    """Issue #23: the standalone `/dashboard` page is retired -- it must 307
+    redirect to a real topic page with `?monitor=open` so bookmarks/links to
+    the old URL keep working instead of dead-ending (Decision B2), reusing
+    `topics.index`'s first-topic resolution."""
+
+    @pytest.fixture(autouse=True)
+    def _idle_cluster(self):
+        # Avoid a real docker_stats/app_client probe from `_driver_ui_url()`
+        # (which runs regardless of cluster state) contending with whatever
+        # `manager.state` a previous test left behind.
+        manager.state = ClusterState.IDLE
+        yield
+
+    def test_redirects_to_first_topic_with_monitor_open(self, monkeypatch):
+        topics = [SimpleNamespace(id="bucketing"), SimpleNamespace(id="aqe")]
+        monkeypatch.setattr(dashboard_module.loader, "list_topics", lambda: topics)
+
+        resp = client.get("/dashboard", follow_redirects=False)
+
+        assert resp.status_code == 307
+        assert resp.headers["location"] == "/topics/bucketing?monitor=open"
+
+    def test_redirects_to_fallback_topic_when_no_topics_exist(self, monkeypatch):
+        monkeypatch.setattr(dashboard_module.loader, "list_topics", lambda: [])
+
+        resp = client.get("/dashboard", follow_redirects=False)
+
+        assert resp.status_code == 307
+        assert resp.headers["location"] == "/topics/partitioning-shuffle?monitor=open"
+
+
+class TestDashboardPanelRoute:
+    """Issue #23: `/dashboard/panel` serves the extracted panel body (the
+    three dash-view containers + the SSE-connect element) that the shell's
+    Cluster Monitor panel HTMX-fetches into `#monitor-body` on open."""
+
+    @pytest.fixture(autouse=True)
+    def _idle_cluster(self, monkeypatch):
+        manager.state = ClusterState.IDLE
+        monkeypatch.setattr(app_client, "resolve_current_app", lambda timeout_s=2.0: None)
+
+    def test_panel_route_renders_the_three_dash_views_and_sse_element(self):
+        resp = client.get("/dashboard/panel")
+
+        assert resp.status_code == 200
+        assert 'id="overview-content" class="dash-view active"' in resp.text
+        assert 'id="job-detail-content" class="dash-view"' in resp.text
+        assert 'id="node-detail-container" class="dash-view"' in resp.text
+        assert 'sse-connect="/dashboard/stream"' in resp.text

@@ -6,6 +6,7 @@
   <title>{{ topic.title }} — Spark Playbook</title>
   <link rel="stylesheet" href="/static/style.css" />
   <script src="/static/htmx.min.js"></script>
+  <script src="/static/htmx-sse.js"></script>
 </head>
 <body class="shell-body">
   <div class="shell-frame">
@@ -25,6 +26,21 @@
           <button type="button" id="drawer-close" class="icon-btn" aria-label="Close">&times;</button>
         </div>
         {% include "fragments/_cluster_drawer.html" %}
+      </div>
+
+      {# CLUSTER MONITOR PANEL (US-SH4) -- mirrors the cluster drawer's
+         open/close/backdrop pattern (Decision C). #monitor-body is fetched
+         from GET /dashboard/panel on open, which injects the SSE-connect
+         element into the DOM (opening the EventSource); closing clears
+         #monitor-body (removing that element, closing the EventSource --
+         Decision B). Closed by default. #}
+      <div id="monitor-backdrop" class="drawer-backdrop" hidden></div>
+      <div id="monitor-panel" class="cluster-drawer monitor-panel">
+        <div class="drawer-header">
+          <span class="drawer-title">Cluster Monitor</span>
+          <button type="button" id="monitor-close" class="icon-btn" aria-label="Close">&times;</button>
+        </div>
+        <div id="monitor-body"></div>
       </div>
 
       {# LEFT PANE — Concept / Notebook / Self-check tabs (US-SH1/G-SH2),

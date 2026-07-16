@@ -28,11 +28,9 @@
 
   <div class="top-bar-right">
     {% include "fragments/_state_pill.html" %}
-    {# US-SH4: the Cluster Monitor is a UI element in this shell (relocated
-       from base.html's nav link); wiring it into an in-page SSE slide-in
-       panel and retiring the standalone /dashboard route is out of scope
-       for this task -- tracked separately (GitHub issue #23). Reuses the
-       existing, unchanged /dashboard route. #}
-    <a href="/dashboard" class="monitor-link">Cluster Monitor</a>
+    {# US-SH4: opens the Cluster Monitor slide-in panel (Decision B) --
+       the standalone /dashboard route is retired; this button is the sole
+       entry point. #}
+    <button type="button" id="monitor-open" class="monitor-link">Cluster Monitor</button>
   </div>
 </div>

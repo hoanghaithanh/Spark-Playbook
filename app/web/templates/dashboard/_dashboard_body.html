@@ -1,0 +1,110 @@
+{# Cluster Monitor panel body (US-SH4, Decision B) -- the header bar, the SSE
+   listener element, and the three client-switched views. Fetched by the
+   shell's Cluster Monitor panel (GET /dashboard/panel) and injected into
+   #monitor-body; the stylesheet/htmx <script> tags are already loaded by
+   shell.html so this partial carries neither.
+
+   Formerly the body of the standalone dashboard/page.html (ADR D-E), folded
+   in here when the standalone /dashboard route was retired in favor of the
+   panel (issue #23). #}
+<style>
+  @keyframes dash-pulse{0%,100%{opacity:1;}50%{opacity:.45;}}
+  .dash-view{display:none;}
+  .dash-view.active{display:block;}
+  .node-detail-block.active{display:block !important;}
+</style>
+
+<div style="display:flex;align-items:center;justify-content:space-between;padding:16px 28px;background:#12151c;color:#fff;">
+  <div style="display:flex;align-items:center;gap:12px;">
+    <div style="width:28px;height:28px;border-radius:7px;background:linear-gradient(135deg,#f97316,#ef4444);flex:none;"></div>
+    <div style="font-size:16px;font-weight:600;letter-spacing:-0.01em;">Spark Cluster Monitor</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:18px;">
+    {# G-RTD5 / US-5.6: deep-links out to the raw Spark UIs, matching
+       the existing US-2.2 pattern -- the dashboard complements, not
+       replaces, them. #}
+    <a href="{{ master_ui_url }}" target="_blank" rel="noopener" style="font-size:12px;color:#8b93a3;">Master UI &rarr;</a>
+    <a href="{{ driver_ui_url }}" target="_blank" rel="noopener" style="font-size:12px;color:#8b93a3;">Driver UI &rarr;</a>
+    <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:#8b93a3;">
+      <span style="width:7px;height:7px;border-radius:50%;background:#22c55e;animation:dash-pulse 2s ease-in-out infinite;"></span>
+      Live &middot; updates every ~{{ config.DASHBOARD_COLLECTOR_INTERVAL_S | int }}s
+    </div>
+    <div id="dash-now" style="font-size:12px;color:#8b93a3;">{{ snapshot.now_label }}</div>
+  </div>
+</div>
+
+{# The actual SSE connection. hx-swap="none" -- this element itself
+   swaps nothing; the pushed HTML carries its own hx-swap-oob targets
+   (ADR D-B "single collector, one SSE connection per client"). Injecting
+   this element into the DOM is what opens the EventSource (Decision B);
+   removing it (panel close) is what closes it. #}
+<div hx-ext="sse" sse-connect="/dashboard/stream" sse-swap="message" hx-swap="none"></div>
+
+<div id="overview-content" class="dash-view active">
+  {% include "dashboard/fragments/_overview_body.html" %}
+</div>
+
+<div id="job-detail-content" class="dash-view">
+  {% include "dashboard/fragments/_job_detail_body.html" %}
+</div>
+
+<div id="node-detail-container" class="dash-view">
+  {% import "dashboard/macros.html" as m %}
+  {% for node in snapshot.nodes %}
+    {{ m.node_detail_block(node, snapshot.partitions | selectattr("node", "equalto", node.name) | list) }}
+  {% endfor %}
+</div>
+
+<script>
+  (function () {
+    var state = { view: 'overview', selectedNode: null };
+
+    function applyView() {
+      document.getElementById('overview-content').classList.toggle('active', state.view === 'overview');
+      document.getElementById('job-detail-content').classList.toggle('active', state.view === 'jobDetail');
+      var nodeContainer = document.getElementById('node-detail-container');
+      nodeContainer.classList.toggle('active', state.view === 'nodeDetail');
+      document.querySelectorAll('.node-detail-block').forEach(function (el) {
+        el.classList.toggle('active', state.view === 'nodeDetail' && el.getAttribute('data-node') === state.selectedNode);
+      });
+    }
+
+    window.dashGoTo = function (view) {
+      state.view = view;
+      applyView();
+    };
+
+    window.dashSelectNode = function (name) {
+      state.selectedNode = name;
+      state.view = 'nodeDetail';
+      applyView();
+    };
+
+    // Re-apply the current view/selection after every SSE-driven OOB swap
+    // -- the swapped-in markup always starts hidden (server has no notion
+    // of client-side view state), so the client must restore visibility
+    // itself (view switching stays 100% client-side, ADR D-B).
+    document.body.addEventListener('htmx:oobAfterSwap', applyView);
+    document.body.addEventListener('htmx:afterSwap', applyView);
+
+    var clockInterval = setInterval(function () {
+      var el = document.getElementById('dash-now');
+      if (el) {
+        el.textContent = new Date().toLocaleTimeString();
+      }
+    }, 1000);
+
+    // This partial is HTMX-fetched fresh into #monitor-body on every panel
+    // open, but its interval/listeners aren't torn down by removing the DOM
+    // -- hand shell.js's close() a cleanup it can call before clearing
+    // #monitor-body's innerHTML (each open/close cycle otherwise leaks
+    // another interval + two document.body listeners).
+    window.__monitorPanelCleanup = function () {
+      clearInterval(clockInterval);
+      document.body.removeEventListener('htmx:oobAfterSwap', applyView);
+      document.body.removeEventListener('htmx:afterSwap', applyView);
+    };
+
+    applyView();
+  })();
+</script>
