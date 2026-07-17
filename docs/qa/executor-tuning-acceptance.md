@@ -230,3 +230,41 @@ on disk), reusing the same driver script as the prior pass.
   disturb the committed notebook file.
 
 No new issues found. Issue #37 can be closed once the human gives final sign-off.
+
+## Addendum, 2026-07-17 -- live re-check of the double-app-resolution fix (commit `1fc4c8d`)
+
+Re-checked the code-review Major finding on `reveal_annotation()` resolving the live Spark app twice per
+Reveal call (once in `_stages_context()`, again via a separate `_resolve_app_ref()`), fixed in `1fc4c8d`
+by having `_stages_context()` return `(context_dict, app_ref)` and having `reveal_annotation()` reuse that
+`app_ref` for `_executor_rows()` too; `_resolve_app_ref()` deleted. Developer verified statically only
+(unit suite unchanged at 308, a behavior-preserving refactor). `docker ps -a` was empty before starting.
+
+**Method:** cluster spawned via `POST /topics/executor-tuning/spawn` with this topic's own
+`cluster_defaults`. Rather than a full notebook run, only the cells needed to reach the first checkpoint
+were executed (build dataset, run the fat-executor job, `checkpoint(fat_df, ...)`) via a driver script
+against the real JupyterLab kernel REST/WebSocket API, same technique as prior passes, notebook file never
+modified on disk.
+
+**Result: the refactor holds.**
+
+- `POST /topics/executor-tuning/annotation/reveal` (0.2s) rendered all three sections correctly against
+  the live checkpoint: plan-node list (`ColumnarToRow`/`Scan`, unannotated -- expected, no `plan_nodes`
+  rules on this topic), an 8-row stage table (all `COMPLETE`), and a 4-row executor table (`driver` + 3
+  fat-run executors) with `totalGCTime` spotlighted -- nothing stale or empty.
+- `GET /topics/executor-tuning/annotation/stages` (the ~6s-polled fragment, the other caller whose
+  `_stages_context()` call site changed from unpacking a dict to unpacking a tuple) independently rendered
+  the identical 8-row stage table correctly -- no regression from the signature change.
+- Confirmed only one resolution now happens per Reveal: temporarily added a call-counter (append-to-file)
+  inside `app_client.resolve_app()`, restarted the server, hit Reveal once -- exactly **1** call logged
+  (previously would have been 2: one inside `_stages_context()`, one via the deleted
+  `_resolve_app_ref()`). Instrumentation reverted immediately after
+  (`git diff -- app/spark_api/app_client.py` empty, confirmed).
+- `py -3 -m pytest tests/unit -q` -> **308 passed**, unchanged, as expected for a route-layer refactor.
+
+**Cleanup:** `docker ps -a` empty (the cluster's driver container, which also hosted the Jupyter kernel,
+went down when its owning `uvicorn` process was restarted for the instrumentation step -- no orphaned
+containers, no manual teardown call needed). `git status --porcelain` clean; `git diff -- content/
+executor-tuning/notebook.ipynb` empty (every cell still `execution_count: null`, empty `outputs`).
+
+No new issues found. The double-resolution fix from code review is confirmed working live, not just
+statically.
