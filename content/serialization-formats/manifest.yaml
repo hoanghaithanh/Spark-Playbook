@@ -1,0 +1,54 @@
+# Spark Playbook — topic manifest (PLAN.md §3 schema).
+#
+# US-C8: this topic's self-check hypothesis -- "does bytes read drop when
+# switching row-oriented CSV to columnar Parquet, and does a partition filter
+# skip whole files/partitions" -- is a `stage_metrics` spotlighting case, not
+# a new plan-shape question, per the requirements doc's own disposition
+# (docs/requirements/curriculum-topics-2026-07.md, US-C8's last bullet): the
+# evidence is `inputBytes` on the stage the scan feeds, already exposed by
+# `/api/v1/applications/<id>/stages` (same REST surface every other topic's
+# stage_metrics panel already polls) and already passed through unmodified by
+# `app.annotation.engine.spotlight_stage_metrics()` -- no new annotation-engine
+# capability needed.
+#
+# `plan_nodes` was originally two rules here, one each for `Scan parquet` and
+# `Scan csv`, to label which format a given run read (per the issue's own
+# suggestion). Found by running the notebook for real against a live cluster
+# and checking the actual self-check reveal: `app/annotation/plan_parser.py`'s
+# tokenizer (`_OPERATOR_NAME_RE`) only ever captures a plan node's *first*
+# word off each tree line -- by design, every other topic's rules are single
+# words (`Window`, `Sort`, `Exchange`, `BroadcastExchange`, ...). Both
+# `Scan parquet ...` and `Scan csv ...` tokenize down to the single word
+# `Scan`, so two rules keyed on the two-word text can never match -- this
+# isn't a per-topic bug, it's this engine's real, structural limitation
+# (extending the tokenizer to capture a second word is a plan_parser.py
+# change, out of scope here per the issue's explicit "no new
+# annotation-engine capability needed"). One `Scan` rule below labels the
+# node generically; the actual format-dependent evidence (bytes read) lives
+# entirely on the spotlighted `inputBytes` stage metric, which is the real
+# self-check mechanism this topic's evidence was always meant to use.
+
+id: serialization-formats
+title: "Serialization Formats"
+order: 8
+content: concept.md
+notebook: notebook.ipynb
+
+cluster_defaults:
+  worker_count: 3
+  worker_cores: 2
+  worker_memory_gb: 4
+  shuffle_partitions: 200
+  aqe_enabled: false
+requires_kafka: false
+
+annotation:
+  plan_nodes:
+    - match: "Scan"
+      concept: file-scan
+      label: "File scan -- whether this reads a proportional slice (columnar) or the whole row (row-oriented) shows up in the stage's inputBytes below, not in this node's text"
+
+  stage_metrics:
+    - key: inputBytes
+      spotlight: true
+    - key: numTasks

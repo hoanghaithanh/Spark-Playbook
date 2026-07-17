@@ -138,6 +138,37 @@ class TestLoadRealWindowFunctionsTopic:
         assert "window-functions" in ids
 
 
+class TestLoadRealSerializationFormatsTopic:
+    """Sanity check against the actual shipped content/serialization-formats/
+    (US-C8, issue #30) -- same coverage shape as
+    TestLoadRealWindowFunctionsTopic above."""
+
+    def test_manifest_fields(self):
+        topic = loader.load_topic("serialization-formats")
+        assert topic.id == "serialization-formats"
+        assert topic.title == "Serialization Formats"
+        assert topic.order == 8
+        assert topic.requires_kafka is False
+        assert topic.cluster_defaults.worker_count == 3
+        assert topic.cluster_defaults.shuffle_partitions == 200
+
+    def test_concept_markdown_renders_to_html(self):
+        topic = loader.load_topic("serialization-formats")
+        html = topic.concept_html()
+        assert "columnar" in html.lower()
+        assert "inputBytes" in html
+
+    def test_notebook_path_resolves(self):
+        topic = loader.load_topic("serialization-formats")
+        assert topic.notebook_path.name == "notebook.ipynb"
+        assert topic.notebook_path.exists()
+
+    def test_list_topics_includes_serialization_formats(self):
+        topics = loader.list_topics()
+        ids = [t.id for t in topics]
+        assert "serialization-formats" in ids
+
+
 class TestBlurb:
     """Topic.blurb() (topics-index landing page, issue #26/US-SH5) derives a
     card blurb from concept.md's "## What it is" section instead of a new
