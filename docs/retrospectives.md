@@ -82,3 +82,46 @@ against a real cluster with screenshots before all three were pushed to `main` i
   parallel reviewer/test-engineer pass on the combined diff) for sprints with multiple
   independent-looking stories — it's now caught real bugs two sprints in a row (Sprint 2's #22,
   Sprint 3's template-gating + blocking-call pair).
+
+## Sprint 4 (2026-07-16 – 2026-07-20), closed 2026-07-16
+
+**Scope:** Two shell-dependent content/UI stories, sequenced deliberately — Catalyst plans topic
+page (issue #25, backlog #31) then the data-driven topics-index landing page (issue #26, backlog
+#24), which depended on #25's manifest existing to render correctly.
+
+**Outcome:** Both issues shipped and closed the same day the sprint opened. #25 shipped
+`content/catalyst-plans/{manifest.yaml,concept.md,notebook.ipynb}`, validated against all 6
+US-SH8 criteria on a live 3-worker cluster (evidence in `docs/qa/screenshots/catalyst-plans/`),
+with one code-reviewer Minor (ambiguous shared "pushed-down" label) fixed via clarifying prose
+before sign-off. #26 then went through the full pipeline (developer → code-reviewer, no Blockers
+→ test-engineer coverage review → test-engineer acceptance validation) and passed all 3 US-SH5
+criteria live: `GET /` renders all 5 real topics correctly ordered/titled/blurbed from
+`manifest.yaml`; the "add/remove/reorder a topic folder needs zero code changes" criterion was
+proven with a second live app instance pointed at a scratch content directory, with a topic
+deleted from it on the running server without a restart and the page updating correctly; and a
+grep pass confirmed no topic-id special-casing remains anywhere in the implementation. Human
+sign-off given on both. Sprint 4 milestone (#5) closed with 0 open / 2 closed.
+
+**What went well:**
+- The dependency ordering called out at sprint planning (#26 needs #25's manifest to render
+  correctly) held with no rework — #25 shipped first, #26 built cleanly on top of it.
+- The zero-code-change acceptance criterion for #26 (US-SH5) was validated with an actual live
+  removal against a running second instance rather than just inspecting the code path, which is a
+  stronger proof than a static read of the manifest-loading logic would have been.
+- Both stories cleared code review with no Blockers and one Minor total (on #25) — the shell
+  pattern from Sprint 3 is proving reusable without per-topic special-casing creeping back in,
+  which is exactly what #26's grep check was designed to catch.
+
+**What didn't go well / open item:**
+- This retro is being recorded from the pipeline's own reported facts (commits, review outcomes,
+  live acceptance evidence) rather than from a separate human "what went well / what didn't"
+  conversation this round — flagging that gap explicitly rather than inventing sentiment on the
+  human's behalf. If there's a process observation from this sprint not captured above, add it
+  here before Sprint 5 planning.
+
+**Try next sprint:**
+- Continue sequencing dependent stories explicitly at planning time (as done here for #25→#26)
+  rather than discovering the dependency mid-sprint.
+- Sprint 5 (row #25 DAG & Lazy Eval, #29 Serialization Formats, #14 Caching, #15 Window Functions —
+  4×S per the confirmed Sprint 4-10 plan) has not yet been proposed as its own milestone; do that
+  as a separate sprint-planning step, not bundled into this close-out.

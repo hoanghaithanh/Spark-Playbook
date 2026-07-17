@@ -41,16 +41,23 @@ designed to be consulted *after* you've formed a hypothesis, not to explain thin
   [`docs/acceptance/phase-2-5.md`](docs/acceptance/phase-2-5.md), pending final human sign-off
   (all findings from the acceptance pass, including issue #22, are now resolved — see that
   report's addendum for the corrected status).
-- **Sprint 3 — topic-page shell redesign (in progress).** A UI redesign sourced from an imported
-  Claude Design project: a unified topic-page shell (Concept/Notebook/Self-check tabs,
-  cluster-config drawer, breadcrumb topic switcher), the Phase 2.5 dashboard moving from a
-  standalone route to an in-page slide-in panel, and a dedicated Catalyst plans topic page. See
+- **Sprint 3 — topic-page shell redesign.** Built, tested, and closed out: a unified topic-page
+  shell (Concept/Notebook/Self-check tabs, cluster-config drawer, breadcrumb topic switcher) and
+  the Phase 2.5 dashboard moving from a standalone route to an in-page slide-in panel. See
   [`docs/requirements/topic-shell-redesign.md`](docs/requirements/topic-shell-redesign.md) and
   [`docs/architecture/topic-shell-redesign.md`](docs/architecture/topic-shell-redesign.md).
   Six new curriculum topics (DAG & Lazy Evaluation, Skew & Salting, Executor Tuning,
   Checkpointing, Serialization Formats, Fault Tolerance & Lineage) are scoped alongside this in
   [`docs/requirements/curriculum-topics-2026-07.md`](docs/requirements/curriculum-topics-2026-07.md)
   but sequenced after the shell per a shell-first prioritization decision — not yet built.
+- **Sprint 4 — Catalyst plans topic + data-driven topics-index landing page.** Built, tested, and
+  closed out: a dedicated `content/catalyst-plans/` curriculum topic (parse → analyze → optimize
+  → physical-plan phases, DataFrame/SQL/UDF predicate-pushdown comparison, three-cell notebook
+  walkthrough), and `GET /` now rendering a real topics-index landing page — one card per
+  `content/*/manifest.yaml` topic (id, title, order, a blurb derived from each topic's
+  `concept.md`), sorted by `order`, with no hardcoded topic list — replacing the previous
+  307-redirect to the first topic. See [`docs/requirements/topic-shell-redesign.md`](docs/requirements/topic-shell-redesign.md)
+  (US-SH5, US-SH8) and [`docs/backlog.md`](docs/backlog.md) rows #31/#24 for acceptance evidence.
 - **Phase 3 (streaming/Kafka) and Phase 4 (remaining curriculum topics)** are backlogged, not yet
   started.
 
