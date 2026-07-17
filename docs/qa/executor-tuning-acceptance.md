@@ -195,3 +195,38 @@ All 3 new tests pass; full suite is 308/308 passing after the additions
 This is a **recommendation, not final sign-off** -- the human should review, especially issue #37 (does
 the assertion-reliability/resource-leak bug need to block sprint close-out for #34, or can it be deferred
 to a follow-up within the same sprint?), before marking US-C3 done.
+
+## Addendum, 2026-07-17 -- live re-check of issue #37's fix (commit `05c473a`)
+
+Re-ran this validation against `05c473a` (`fix(executor-tuning): stop rightsized session before assert,
+soften GC-fraction claim`, `worktree-issue-34-executor-tuning`), which the developer verified only
+statically (another worktree held the shared Docker container names at the time). `docker ps -a` was
+empty before starting, so this pass had a real cluster to itself.
+
+**Method:** same as above -- cluster spawned via `POST /topics/executor-tuning/spawn` with this topic's
+own `cluster_defaults` (3 workers/4 cores/8GB/200 shuffle partitions/AQE off), notebook's 7 code cells
+executed in file order against a fresh JupyterLab kernel via the REST/WebSocket API (unmodified `.ipynb`
+on disk), reusing the same driver script as the prior pass.
+
+**Result: issue #37 is resolved.**
+
+- All 7 code cells completed `ok`, including the former cell 13 (now the notebook's last code cell) --
+  no `AssertionError` anywhere. This run's numbers happened to land in the heuristic's predicted direction
+  (fat=0.0266 > right-sized=0.0180), unlike the prior run that triggered #37, but the fix no longer
+  depends on direction: the cell prints `"...came out {higher|NOT higher} than..."` either way and only
+  hard-asserts on executor counts (3 fat / 6 right-sized) and wall-clock non-degeneracy, confirmed by
+  reading the executed source and its clean pass.
+- Confirmed via the Spark master's REST API (`http://127.0.0.1:8080/json/`) immediately after the last
+  cell finished: `activeapps: []`, both `executor-tuning-fat` and `executor-tuning-rightsized` show up
+  only in `completedapps` with state `FINISHED`, and all 3 workers report `coresused=0`/`memoryused=0`.
+  No stray application held executor capacity -- `spark_rightsized.stop()` running before the assertions
+  (source-confirmed: it's now the first statement after the results are printed, ahead of every `assert`)
+  genuinely releases the cluster, not just in theory.
+- `py -3 -m pytest tests/unit -q` -> **308 passed**, unchanged from before the fix (no app code touched
+  by `05c473a`, as expected).
+- Cleanup: kernel deleted, `POST /topics/executor-tuning/teardown` returned `state: idle`, `docker ps -a`
+  empty afterward. `git status --porcelain` and `git diff -- content/executor-tuning/notebook.ipynb` both
+  empty; every code cell still has `execution_count: null` and `outputs: []` -- the live run did not
+  disturb the committed notebook file.
+
+No new issues found. Issue #37 can be closed once the human gives final sign-off.
