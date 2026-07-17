@@ -93,6 +93,30 @@ class TestLoadRealCachingPersistenceManifest:
         assert manifest.task_duration_quantiles is False
 
 
+class TestLoadRealWindowFunctionsManifest:
+    """US-C6 (issue #29): this topic's *first* self-check hypothesis (plan
+    shape) is a genuine plan_nodes case (unchanged US-2.1/US-4.2 mapping);
+    its *second* hypothesis (task count collapsing to 1 when partitionBy is
+    dropped) comes from the notebook's own REST /stages check, same
+    disposition as the other real-topic classes above."""
+
+    def test_plan_nodes_include_window_sort_exchange(self):
+        manifest = load_annotation_manifest("window-functions")
+        matches = [r.match for r in manifest.plan_nodes]
+        assert "Window" in matches
+        assert "Sort" in matches
+        assert "Exchange" in matches
+
+    def test_stage_metrics_loaded(self):
+        manifest = load_annotation_manifest("window-functions")
+        keys = [r.key for r in manifest.stage_metrics]
+        assert "numTasks" in keys
+
+    def test_no_task_duration_quantiles_opt_in(self):
+        manifest = load_annotation_manifest("window-functions")
+        assert manifest.task_duration_quantiles is False
+
+
 class TestValidManifest:
     def test_full_rule_set(self, tmp_path):
         annotation = {

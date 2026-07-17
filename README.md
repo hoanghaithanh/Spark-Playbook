@@ -58,6 +58,15 @@ designed to be consulted *after* you've formed a hypothesis, not to explain thin
   `concept.md`), sorted by `order`, with no hardcoded topic list — replacing the previous
   307-redirect to the first topic. See [`docs/requirements/topic-shell-redesign.md`](docs/requirements/topic-shell-redesign.md)
   (US-SH5, US-SH8) and [`docs/backlog.md`](docs/backlog.md) rows #31/#24 for acceptance evidence.
+- **Sprint 5 — four more curriculum topics.** In progress: `content/dag-lazy-evaluation/` (DAG &
+  Lazy Evaluation, issue #27), `content/caching-persistence/` (Caching & Persistence, issue #28),
+  and `content/window-functions/` (Window Functions, issue #29) are each built, tested,
+  code-reviewed with no blockers, and live-acceptance-validated against a real cluster (all
+  acceptance criteria PASS, human sign-off given); Serialization Formats (issue #30) remains open.
+  These bring the topics-index landing page to 8 real topics. See
+  [`docs/backlog.md`](docs/backlog.md) rows #25/#14/#15 and
+  [`docs/qa/window-functions-acceptance.md`](docs/qa/window-functions-acceptance.md) for the latest
+  acceptance evidence.
 - **Phase 3 (streaming/Kafka) and Phase 4 (remaining curriculum topics)** are backlogged, not yet
   started.
 

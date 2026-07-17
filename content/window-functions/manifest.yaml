@@ -1,0 +1,55 @@
+# Spark Playbook — topic manifest (PLAN.md §3 schema).
+#
+# US-C6 (supersedes/extends US-4.2): this topic's first self-check
+# hypothesis -- "what plan node does row_number()/the running total produce,
+# and what precedes it" -- is a plan-shape question, squarely inside the
+# existing plan_nodes mechanism (US-2.1/US-4.2's own mapping, unchanged): a
+# `Window` node preceded by the `Sort` (within-partition ordering) and
+# `Exchange` (hash-partitioned shuffle by the partition column) that a
+# windowed aggregation always needs.
+#
+# The topic's *second* self-check hypothesis -- "does dropping partitionBy
+# change the shuffle-partition/task count" -- is a task-count question, not a
+# plan-node-labeling one: the physical plan for a partitionBy-less window
+# still shows the same `Window`/`Sort`/`Exchange` node shapes (Spark still
+# routes everything through one global order-by partition to guarantee a
+# single total order), so no plan node distinguishes "correct" from
+# "accidentally global" by shape alone. The actual evidence (task count
+# collapsing to 1) lives on the same stage/task REST data every other topic's
+# stage_metrics panel already polls (`/api/v1/applications/<id>/stages`,
+# `numTasks`) -- same disposition as dag-lazy-evaluation's jobs_snapshot() and
+# caching-persistence's storage_snapshot() helpers, so the notebook queries
+# it directly rather than needing a new annotation-engine capability.
+
+id: window-functions
+title: "Window Functions"
+order: 7
+content: concept.md
+notebook: notebook.ipynb
+
+cluster_defaults:
+  worker_count: 3
+  worker_cores: 2
+  worker_memory_gb: 4
+  shuffle_partitions: 200
+  aqe_enabled: false
+requires_kafka: false
+
+annotation:
+  plan_nodes:
+    - match: "Window"
+      concept: window-function
+      label: "Window node -- row_number()/running-total computed per partition, in the order the preceding Sort establishes"
+    - match: "Sort"
+      concept: window-partition-sort
+      label: "Sort -- orders each partition (partitionBy key, then orderBy column) before the Window node consumes it"
+    - match: "Exchange"
+      concept: window-partition-shuffle
+      label: "Shuffle boundary (Exchange) -- rows for the same partitionBy key land on the same task before sorting/windowing"
+
+  stage_metrics:
+    - key: numTasks
+      spotlight: true
+    - key: shuffleReadBytes
+    - key: shuffleWriteBytes
+    - key: executorRunTime
