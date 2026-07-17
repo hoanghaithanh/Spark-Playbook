@@ -58,16 +58,26 @@ designed to be consulted *after* you've formed a hypothesis, not to explain thin
   `concept.md`), sorted by `order`, with no hardcoded topic list — replacing the previous
   307-redirect to the first topic. See [`docs/requirements/topic-shell-redesign.md`](docs/requirements/topic-shell-redesign.md)
   (US-SH5, US-SH8) and [`docs/backlog.md`](docs/backlog.md) rows #31/#24 for acceptance evidence.
-- **Sprint 5 — four more curriculum topics.** In progress: `content/dag-lazy-evaluation/` (DAG &
-  Lazy Evaluation, issue #27), `content/caching-persistence/` (Caching & Persistence, issue #28),
-  and `content/window-functions/` (Window Functions, issue #29) are each built, tested,
-  code-reviewed with no blockers, and live-acceptance-validated against a real cluster (all
-  acceptance criteria PASS, human sign-off given); Serialization Formats (issue #30) remains open.
-  These bring the topics-index landing page to 8 real topics. See
-  [`docs/backlog.md`](docs/backlog.md) rows #25/#14/#15 and
-  [`docs/qa/window-functions-acceptance.md`](docs/qa/window-functions-acceptance.md) for the latest
-  acceptance evidence.
-- **Phase 3 (streaming/Kafka) and Phase 4 (remaining curriculum topics)** are backlogged, not yet
+- **Sprint 5 — four more curriculum topics.** Built, tested, and closed out: `content/dag-lazy-evaluation/`
+  (DAG & Lazy Evaluation, issue #27), `content/caching-persistence/` (Caching & Persistence, issue
+  #28), `content/window-functions/` (Window Functions, issue #29), and `content/serialization-formats/`
+  (Serialization Formats, issue #30) are each built, tested, code-reviewed with no blockers, and
+  live-acceptance-validated against a real cluster (all acceptance criteria PASS, human sign-off
+  given). These brought the topics-index landing page to 9 real topics. See
+  [`docs/backlog.md`](docs/backlog.md) rows #25/#14/#15/#29 and
+  [`docs/qa/serialization-formats-acceptance.md`](docs/qa/serialization-formats-acceptance.md) for
+  the latest acceptance evidence.
+- **Sprint 6 — executor tuning, memory management, skew & salting.** In progress:
+  `content/executor-tuning/` (Executor Tuning, issue #34) is built, tested, code-reviewed with no
+  blockers, and live-acceptance-validated against a real cluster (all 3 US-C3 acceptance criteria
+  PASS — see [`docs/qa/executor-tuning-acceptance.md`](docs/qa/executor-tuning-acceptance.md)),
+  human sign-off given. This topic introduces the `executor_metrics` annotation-manifest mechanism
+  (a reveal-time REST pull from `/api/v1/applications/<id>/executors`, mirroring the existing
+  `stage_metrics` mechanism — see
+  [`docs/architecture/topic-shell-redesign.md`](docs/architecture/topic-shell-redesign.md) Decision
+  A), shared with sibling issue #36 (Memory Management). Memory Management (issue #36) and Skew &
+  Salting (issue #35) remain open. This brings the topics-index landing page to 10 real topics.
+- **Phase 3 (streaming/Kafka) and remaining Phase 4 curriculum topics** are backlogged, not yet
   started.
 
 For the full prioritized list of remaining work, see [`docs/backlog.md`](docs/backlog.md). For the
