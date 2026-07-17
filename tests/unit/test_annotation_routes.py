@@ -289,6 +289,127 @@ class TestRevealExecutorMetrics:
         assert resp.status_code == 200
         assert "Could not reach" in resp.text
 
+    def test_empty_executor_list_shows_no_executors_message(self, tmp_path, monkeypatch):
+        """`fetch_executors()` reachable but returning `[]` (e.g. app just
+        started, no executors registered yet) is distinct from "unreachable"
+        (None) -- must not be conflated with the error message above."""
+        content_dir = tmp_path / "content"
+        topic_dir = content_dir / "exec-metrics-empty"
+        topic_dir.mkdir(parents=True)
+        manifest = {
+            "id": "exec-metrics-empty",
+            "title": "Exec Metrics Empty",
+            "content": "concept.md",
+            "notebook": "notebook.ipynb",
+            "annotation": {"executor_metrics": [{"key": "memoryUsed", "spotlight": True}]},
+        }
+        (topic_dir / "manifest.yaml").write_text(yaml.dump(manifest), encoding="utf-8")
+        (topic_dir / "concept.md").write_text("# ok", encoding="utf-8")
+        (topic_dir / "notebook.ipynb").write_text("{}", encoding="utf-8")
+
+        annotations_dir = tmp_path / "annotations"
+        _write_checkpoint(annotations_dir, "exec-metrics-empty", app_id="app-test-exec-0004")
+
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: [])
+        monkeypatch.setattr(
+            annotation_module.app_client, "fetch_all_app_ids", lambda timeout_s=3.0: ["app-test-exec-0004"]
+        )
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "resolve_app",
+            lambda app_id, timeout_s=3.0: AppRef(app_id=app_id, base_url="http://localhost:4040"),
+        )
+        monkeypatch.setattr(annotation_module.app_client, "fetch_executors", lambda app, timeout_s=3.0: [])
+
+        with patch.object(config, "CONTENT_DIR", content_dir), patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
+            resp = client.post("/topics/exec-metrics-empty/annotation/reveal")
+
+        assert resp.status_code == 200
+        assert "No executors reported yet" in resp.text
+        assert "Could not reach" not in resp.text
+
+    def test_malformed_executors_shape_shows_clear_message_not_500(self, tmp_path, monkeypatch):
+        """Same guard as stage_metrics' issue #13 fix (_stage_rows): an
+        unexpected shape (dict instead of list) from fetch_executors() must
+        degrade the same as 'unreachable', not raise while iterating it."""
+        content_dir = tmp_path / "content"
+        topic_dir = content_dir / "exec-metrics-malformed"
+        topic_dir.mkdir(parents=True)
+        manifest = {
+            "id": "exec-metrics-malformed",
+            "title": "Exec Metrics Malformed",
+            "content": "concept.md",
+            "notebook": "notebook.ipynb",
+            "annotation": {"executor_metrics": [{"key": "memoryUsed", "spotlight": True}]},
+        }
+        (topic_dir / "manifest.yaml").write_text(yaml.dump(manifest), encoding="utf-8")
+        (topic_dir / "concept.md").write_text("# ok", encoding="utf-8")
+        (topic_dir / "notebook.ipynb").write_text("{}", encoding="utf-8")
+
+        annotations_dir = tmp_path / "annotations"
+        _write_checkpoint(annotations_dir, "exec-metrics-malformed", app_id="app-test-exec-0005")
+
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: [])
+        monkeypatch.setattr(
+            annotation_module.app_client, "fetch_all_app_ids", lambda timeout_s=3.0: ["app-test-exec-0005"]
+        )
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "resolve_app",
+            lambda app_id, timeout_s=3.0: AppRef(app_id=app_id, base_url="http://localhost:4040"),
+        )
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "fetch_executors",
+            lambda app, timeout_s=3.0: {"error": "unexpected shape"},
+        )
+
+        with patch.object(config, "CONTENT_DIR", content_dir), patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
+            resp = client.post("/topics/exec-metrics-malformed/annotation/reveal")
+
+        assert resp.status_code == 200
+        assert "Could not reach" in resp.text
+
+    def test_no_live_application_shows_could_not_reach(self, tmp_path, monkeypatch):
+        """Distinct code path from test_unreachable_executors_rest_shows_clear_message:
+        there, `resolve_app()` succeeds but `fetch_executors()` fails. Here, no
+        live application resolves at all (per the architecture doc's stated
+        trade-off that this evidence source depends on a live :4040) --
+        `_resolve_app_ref()` returns None and `_executor_rows()` must short
+        circuit without ever calling fetch_executors()."""
+        content_dir = tmp_path / "content"
+        topic_dir = content_dir / "exec-metrics-no-app"
+        topic_dir.mkdir(parents=True)
+        manifest = {
+            "id": "exec-metrics-no-app",
+            "title": "Exec Metrics No App",
+            "content": "concept.md",
+            "notebook": "notebook.ipynb",
+            "annotation": {"executor_metrics": [{"key": "memoryUsed", "spotlight": True}]},
+        }
+        (topic_dir / "manifest.yaml").write_text(yaml.dump(manifest), encoding="utf-8")
+        (topic_dir / "concept.md").write_text("# ok", encoding="utf-8")
+        (topic_dir / "notebook.ipynb").write_text("{}", encoding="utf-8")
+
+        annotations_dir = tmp_path / "annotations"
+        _write_checkpoint(annotations_dir, "exec-metrics-no-app", app_id="app-torn-down")
+
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: None)
+        monkeypatch.setattr(annotation_module.app_client, "fetch_all_app_ids", lambda timeout_s=3.0: None)
+        monkeypatch.setattr(annotation_module.app_client, "resolve_app", lambda app_id, timeout_s=3.0: None)
+        calls = []
+        monkeypatch.setattr(
+            annotation_module.app_client, "fetch_executors", lambda app, timeout_s=3.0: calls.append(app) or []
+        )
+
+        with patch.object(config, "CONTENT_DIR", content_dir), patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
+            resp = client.post("/topics/exec-metrics-no-app/annotation/reveal")
+
+        assert resp.status_code == 200
+        assert calls == []  # fetch_executors() never called when no app resolves
+        assert "Could not reach" in resp.text
+        assert "Stale checkpoint" in resp.text  # also flagged by the existing staleness check
+
 
 class TestStageMetricsFragment:
     def test_invalid_manifest_shows_clear_message_not_500(self, tmp_path, monkeypatch):
