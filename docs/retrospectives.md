@@ -125,3 +125,48 @@ sign-off given on both. Sprint 4 milestone (#5) closed with 0 open / 2 closed.
 - Sprint 5 (row #25 DAG & Lazy Eval, #29 Serialization Formats, #14 Caching, #15 Window Functions —
   4×S per the confirmed Sprint 4-10 plan) has not yet been proposed as its own milestone; do that
   as a separate sprint-planning step, not bundled into this close-out.
+
+## Sprint 5 (2026-07-17 – 2026-07-21), closed 2026-07-17
+
+**Scope:** Four independent curriculum-topic stories from the confirmed Sprint 4-10 plan — DAG &
+Lazy Evaluation (issue #27, backlog #25), Caching/Persistence (issue #28, backlog #14), Window
+Functions (issue #29, backlog #15), Serialization Formats (issue #30, backlog #29). No sequencing
+dependency between them, unlike Sprint 4's #25→#26 chain.
+
+**Outcome:** All 4 issues shipped and closed, all merged to `main` the same day the sprint opened
+(#27, #28, #29 on 2026-07-16; #30 on 2026-07-17 via `465874c`, `Fixes #30` auto-closing on push).
+Each topic was validated live against a real 3-worker cluster and a real JupyterLab kernel rather
+than by static inspection. #30's acceptance evidence (`docs/qa/serialization-formats-acceptance.md`)
+covers all 4 US-C8 criteria: CSV baseline shows no column pruning (~246.2MB read, ~full file),
+identical data as Parquet drops to ~24.1MB (~10x), partition-column filtering on partitioned
+Parquet does whole-file skipping (15.0MB → 1.9MB, matching the 1/8 partition ratio, with
+`PartitionFilters` confirmed in the plan), and the Self-check Reveal flow surfaces all four exact
+`inputBytes` numbers from real stage/task REST data. Code review found no Blockers across the
+sprint's stories. Human gave final sign-off on #30 2026-07-17. Sprint 5 milestone (#6) closed with
+0 open / 4 closed.
+
+**What went well:**
+- Four independent, unsequenced stories all completed the same day the sprint opened — the
+  independent-story pattern (no cross-story dependency to manage, unlike Sprint 4's #25→#26)
+  removed the sequencing overhead entirely.
+- Live acceptance validation against a real cluster kept holding up as the standard: #30's
+  numbers (column pruning ratio, partition-skip ratio) were pulled from actual Spark REST stage/task
+  data, not asserted from reading the plan alone.
+
+**What didn't go well:**
+- During the #30 acceptance pass, a background notebook-execution process appeared to hang with no
+  output — turned out to be a false alarm: stdout was fully block-buffered because it wasn't
+  attached to a tty, not an actual stall. Resolved by re-running with `python -u` and explicit
+  per-message logging. No real bug, but it cost investigation time before the buffering explanation
+  was confirmed (full account in `docs/qa/serialization-formats-acceptance.md`).
+- As with Sprint 4, this retro is recorded from the pipeline's own reported facts (commits, review
+  outcomes, live acceptance evidence) rather than a separate human "what went well / what didn't"
+  conversation this round — flagging that gap explicitly rather than inventing sentiment.
+
+**Try next sprint:**
+- When kicking off a background process whose progress needs to be monitored live (notebook
+  execution, long-running jobs), default to unbuffered/line-buffered output (`python -u` or
+  equivalent) and explicit progress logging from the start, rather than diagnosing an apparent
+  hang after the fact.
+- Sprint 6 has not yet been proposed as its own milestone; that's a separate sprint-planning step
+  for the human to kick off, not bundled into this close-out.
