@@ -48,6 +48,36 @@ class TestLoadRealPartitioningShuffleTopic:
         assert "partitioning-shuffle" in ids
 
 
+class TestLoadRealDagLazyEvaluationTopic:
+    """Sanity check against the actual shipped content/dag-lazy-evaluation/
+    (US-C1, issue #27) -- same coverage shape as
+    TestLoadRealPartitioningShuffleTopic above."""
+
+    def test_manifest_fields(self):
+        topic = loader.load_topic("dag-lazy-evaluation")
+        assert topic.id == "dag-lazy-evaluation"
+        assert topic.title == "DAG & Lazy Evaluation"
+        assert topic.requires_kafka is False
+        assert topic.cluster_defaults.worker_count == 3
+        assert topic.cluster_defaults.shuffle_partitions == 200
+
+    def test_concept_markdown_renders_to_html(self):
+        topic = loader.load_topic("dag-lazy-evaluation")
+        html = topic.concept_html()
+        assert "lazy" in html.lower()
+        assert "Exchange" in html  # the shuffle-boundary concept term
+
+    def test_notebook_path_resolves(self):
+        topic = loader.load_topic("dag-lazy-evaluation")
+        assert topic.notebook_path.name == "notebook.ipynb"
+        assert topic.notebook_path.exists()
+
+    def test_list_topics_includes_dag_lazy_evaluation(self):
+        topics = loader.list_topics()
+        ids = [t.id for t in topics]
+        assert "dag-lazy-evaluation" in ids
+
+
 class TestMissingTopicFailsClearly:
     def test_nonexistent_topic_id_raises(self):
         with pytest.raises(loader.TopicNotFoundError):

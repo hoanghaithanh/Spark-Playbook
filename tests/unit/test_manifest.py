@@ -49,6 +49,28 @@ class TestLoadRealJoinStrategiesManifest:
         assert manifest.task_duration_quantiles is True
 
 
+class TestLoadRealDagLazyEvaluationManifest:
+    """US-C1 (issue #27): this topic's annotation section is a deliberately
+    minimal placeholder (job-count evidence comes from the notebook's own
+    REST /jobs check, not plan-node labeling) -- still exercised for real
+    against the shipped manifest.yaml, same as the other real-topic classes
+    above."""
+
+    def test_plan_nodes_include_shuffle_boundary(self):
+        manifest = load_annotation_manifest("dag-lazy-evaluation")
+        matches = [r.match for r in manifest.plan_nodes]
+        assert "Exchange" in matches
+
+    def test_stage_metrics_loaded(self):
+        manifest = load_annotation_manifest("dag-lazy-evaluation")
+        keys = [r.key for r in manifest.stage_metrics]
+        assert "shuffleReadBytes" in keys
+
+    def test_no_task_duration_quantiles_opt_in(self):
+        manifest = load_annotation_manifest("dag-lazy-evaluation")
+        assert manifest.task_duration_quantiles is False
+
+
 class TestValidManifest:
     def test_full_rule_set(self, tmp_path):
         annotation = {

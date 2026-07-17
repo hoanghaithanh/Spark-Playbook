@@ -1,0 +1,50 @@
+# Spark Playbook — topic manifest (PLAN.md §3 schema).
+#
+# US-C1: this topic's self-check hypothesis ("does .explain(True) alone
+# trigger a job, or only .count()?") is a *job-count* question, answered
+# directly from the Spark UI Jobs tab / `/api/v1/applications/<id>/jobs` REST
+# response the notebook itself queries -- not from plan-node labeling. The
+# existing Reveal flow already surfaces this without any new engine
+# capability: a checkpoint() call only ever runs `.explain()` (never an
+# action), so the stage list `_stages_context()` fetches via the existing
+# REST client is empty until the notebook's own `.count()` cell runs --
+# "zero stages so far" *is* "zero jobs so far", read straight off the same
+# REST surface every other topic's annotation panel already polls. No new
+# annotation-engine capability needed (contrast with US-C3/US-C4/US-C9).
+#
+# The `annotation:` section below is therefore a minimal placeholder, same
+# spirit as content/partitioning-shuffle/manifest.yaml's own comment: it
+# labels the one plan node ("what to look for" directs the learner to,
+# confirming the DAG's stage boundary lines up with the shuffle) so the
+# groupBy's Exchange is annotated once the learner does run `.count()` and
+# checkpoints the resulting plan.
+
+id: dag-lazy-evaluation
+title: "DAG & Lazy Evaluation"
+order: 0
+content: concept.md
+notebook: notebook.ipynb
+
+cluster_defaults:
+  worker_count: 3
+  worker_cores: 2
+  worker_memory_gb: 4
+  shuffle_partitions: 200
+  aqe_enabled: false
+requires_kafka: false
+
+annotation:
+  plan_nodes:
+    - match: "Exchange"
+      concept: shuffle-boundary
+      label: "Shuffle boundary (Exchange) — this is the stage boundary the DAG splits on"
+    - match: "HashAggregate"
+      concept: partial-then-final-aggregate
+      label: "Hash aggregate (partial pre-shuffle, final post-shuffle)"
+
+  stage_metrics:
+    - key: shuffleReadBytes
+      spotlight: true
+    - key: shuffleWriteBytes
+      spotlight: true
+    - key: numTasks
