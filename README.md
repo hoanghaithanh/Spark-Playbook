@@ -68,15 +68,19 @@ designed to be consulted *after* you've formed a hypothesis, not to explain thin
   [`docs/qa/serialization-formats-acceptance.md`](docs/qa/serialization-formats-acceptance.md) for
   the latest acceptance evidence.
 - **Sprint 6 — executor tuning, memory management, skew & salting.** In progress:
-  `content/memory-management/` (Memory Management, issue #36) is built, tested, code-reviewed with
-  no blockers, and live-acceptance-validated against a real cluster (all 5 US-C10 acceptance
-  criteria PASS — see [`docs/qa/memory-management-acceptance.md`](docs/qa/memory-management-acceptance.md)),
-  pending final human sign-off. This topic also introduces the `executor_metrics` annotation-manifest
-  mechanism (a reveal-time REST pull from `/api/v1/applications/<id>/executors`, mirroring the
-  existing `stage_metrics` mechanism — see
+  `content/executor-tuning/` (Executor Tuning, issue #34) is built, tested, code-reviewed with no
+  blockers, and live-acceptance-validated against a real cluster (all 3 US-C3 acceptance criteria
+  PASS — see [`docs/qa/executor-tuning-acceptance.md`](docs/qa/executor-tuning-acceptance.md)),
+  human sign-off given. `content/memory-management/` (Memory Management, issue #36) is built,
+  tested, code-reviewed with no blockers, and live-acceptance-validated against a real cluster (all
+  5 US-C10 acceptance criteria PASS — see
+  [`docs/qa/memory-management-acceptance.md`](docs/qa/memory-management-acceptance.md)), pending
+  final human sign-off. Both topics share the same `executor_metrics` annotation-manifest mechanism
+  (a reveal-time REST pull from `/api/v1/applications/<id>/executors`, mirroring the existing
+  `stage_metrics` mechanism — see
   [`docs/architecture/topic-shell-redesign.md`](docs/architecture/topic-shell-redesign.md) Decision
-  A), shared with sibling issue #34 (Executor Tuning). Executor Tuning (issue #34) and Skew &
-  Salting (issue #35) remain open. These bring the topics-index landing page to 10 real topics.
+  A). Skew & Salting (issue #35) remains open. This brings the topics-index landing page to 11 real
+  topics.
 - **Phase 3 (streaming/Kafka) and remaining Phase 4 curriculum topics** are backlogged, not yet
   started.
 

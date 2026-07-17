@@ -1,0 +1,75 @@
+# Spark Playbook — topic manifest (PLAN.md §3 schema).
+#
+# US-C3: this topic's self-check hypothesis ("does 1 fat executor per node
+# vs. several right-sized executors per node change wall-clock and GC-time
+# fraction") is executor-level *runtime* data (`totalGCTime`/`totalDuration`
+# from `/api/v1/applications/<id>/executors`), not a plan-node fact -- there
+# is no distinctive plan shape that signals "how many executors ran this,
+# how fat was each one". Per the architect's settled disposition (Decision A,
+# docs/architecture/topic-shell-redesign.md; docs/requirements/
+# curriculum-topics-2026-07.md's Open Question 1), this does NOT extend the
+# plan-node matcher (`app/annotation/plan_parser.py`, `engine.annotate_plan()`
+# stay untouched) -- it uses the new, parallel `executor_metrics:` manifest
+# section instead, spotlighted by `engine.spotlight_executor_metrics()`
+# (structurally identical to the existing `stage_metrics`/
+# `spotlight_stage_metrics()` mechanism, US-2.2), pulled once per Reveal
+# click by `app/web/routes/annotation.py` via the already-existing
+# `app_client.fetch_executors()` (reused from the Phase 2.5 dashboard's D-D
+# decision). No `plan_nodes` section: nothing about this topic's self-check
+# is a plan-shape question, so there is nothing to label there.
+#
+# Deviation from the mockup's literal numbers (docs/requirements/
+# curriculum-topics-2026-07.md's US-C3 first bullet cites `executor-cores=8,
+# executor-memory=28g` for the "1 fat executor per node" run and
+# `executor-cores=5, executor-memory=12g` for "right-sized"): this app's own
+# hard-enforced ranges (`app/config.py` WORKER_CORES_RANGE=(1,4),
+# WORKER_MEMORY_GB_RANGE=(1,8), enforced in `app/lifecycle/renderer.py`, not
+# just a UI hint) make a single worker container with 8 cores/28g physically
+# unreachable -- the platform caps a worker container at 4 cores/8GB. The
+# same *concept* (fewer, fatter executors that cram more concurrent tasks
+# into one shared heap vs. more, right-sized executors giving each task more
+# headroom in its own heap) is reproduced instead by holding the physical
+# cluster fixed across both runs (worker_count=3, worker_cores=4,
+# worker_memory_gb=8 below -- the platform's own max-per-worker, and the same
+# "default worker count at 8GB each = 27GB" scale-up precedent
+# app/config.py's RESOURCE_CEILING_GB comment already establishes for Phase 4
+# topics) and varying only the notebook-level
+# `spark.executor.cores`/`spark.executor.memory`:
+#   - "1 fat executor per node": executor-cores=4, executor-memory=2g -- one
+#     executor per worker, 4 concurrent tasks sharing one 2GB heap (~500MB/
+#     task) -- 3 executors total across the 3-worker cluster.
+#   - "right-sized executors": executor-cores=2, executor-memory=2g -- two
+#     executors per worker, each running 2 concurrent tasks against its own
+#     2GB heap (~1GB/task, double the fat run's per-task headroom) -- 6
+#     executors total, same cluster, same total cores, same total memory.
+# Found by actually running both configs against a real cluster (see
+# notebook.ipynb's own measured-numbers comments): holding executor memory
+# constant and only doubling per-executor task concurrency for the fat run
+# reproduces the "5 cores per executor" heuristic's GC-pause-overhead
+# argument on most runs (fat's GC-time fraction measured higher across most
+# repeated runs, though not every run -- see notebook.ipynb cell 13's note);
+# an equal-per-task-memory-ratio split (the first thing tried) did not --
+# see notebook.ipynb's intro cell and concept.md's own deviation note for
+# the full reasoning, including the honest wall-clock and GC-fraction
+# caveats found by real runs.
+
+id: executor-tuning
+title: "Executor Tuning"
+order: 10
+content: concept.md
+notebook: notebook.ipynb
+
+cluster_defaults:
+  worker_count: 3
+  worker_cores: 4
+  worker_memory_gb: 8
+  shuffle_partitions: 200
+  aqe_enabled: false
+requires_kafka: false
+
+annotation:
+  executor_metrics:
+    - key: totalGCTime
+      spotlight: true
+    - key: totalDuration
+    - key: totalTasks

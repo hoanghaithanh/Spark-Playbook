@@ -147,6 +147,36 @@ class TestLoadRealSerializationFormatsManifest:
         assert manifest.task_duration_quantiles is False
 
 
+class TestLoadRealExecutorTuningManifest:
+    """US-C3 (issue #34): this topic's self-check hypothesis (does 1 fat
+    executor per node vs. several right-sized executors change wall-clock
+    and GC-time fraction) is executor-level runtime data, not a plan-node
+    fact -- per Decision A (docs/architecture/topic-shell-redesign.md), it
+    uses the new `executor_metrics` manifest section instead of `plan_nodes`
+    (which this topic's manifest doesn't declare at all)."""
+
+    def test_executor_metrics_spotlight_total_gc_time(self):
+        manifest = load_annotation_manifest("executor-tuning")
+        spotlighted = {r.key for r in manifest.executor_metrics if r.spotlight}
+        assert "totalGCTime" in spotlighted
+
+    def test_executor_metrics_include_duration_and_tasks(self):
+        manifest = load_annotation_manifest("executor-tuning")
+        keys = {r.key for r in manifest.executor_metrics}
+        assert "totalDuration" in keys
+        assert "totalTasks" in keys
+
+    def test_no_plan_nodes(self):
+        """Nothing about this topic's self-check is a plan-shape question
+        (Decision A) -- no plan_nodes section, so nothing to label there."""
+        manifest = load_annotation_manifest("executor-tuning")
+        assert manifest.plan_nodes == []
+
+    def test_no_task_duration_quantiles_opt_in(self):
+        manifest = load_annotation_manifest("executor-tuning")
+        assert manifest.task_duration_quantiles is False
+
+
 class TestValidManifestExecutorMetrics:
     """US-C10/US-C3 (Decision A): executor_metrics is the same shape as
     stage_metrics, just a distinct manifest section/field."""
