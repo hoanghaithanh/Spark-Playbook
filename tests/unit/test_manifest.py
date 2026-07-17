@@ -147,6 +147,45 @@ class TestLoadRealSerializationFormatsManifest:
         assert manifest.task_duration_quantiles is False
 
 
+class TestValidManifestExecutorMetrics:
+    """US-C10/US-C3 (Decision A): executor_metrics is the same shape as
+    stage_metrics, just a distinct manifest section/field."""
+
+    def test_executor_metrics_parsed_with_spotlight(self, tmp_path):
+        annotation = {
+            "executor_metrics": [
+                {"key": "memoryUsed", "spotlight": True},
+                {"key": "maxMemory"},
+            ],
+        }
+        _write_topic(tmp_path, "executor-metrics-topic", annotation)
+        with patch.object(config, "CONTENT_DIR", tmp_path):
+            manifest = load_annotation_manifest("executor-metrics-topic")
+        assert [r.key for r in manifest.executor_metrics] == ["memoryUsed", "maxMemory"]
+        assert manifest.executor_metrics[0].spotlight is True
+        assert manifest.executor_metrics[1].spotlight is False
+
+    def test_defaults_to_empty_list_when_absent(self, tmp_path):
+        _write_topic(tmp_path, "no-executor-metrics-topic", {})
+        with patch.object(config, "CONTENT_DIR", tmp_path):
+            manifest = load_annotation_manifest("no-executor-metrics-topic")
+        assert manifest.executor_metrics == []
+
+    def test_executor_metrics_not_a_list_raises(self, tmp_path):
+        annotation = {"executor_metrics": "not-a-list"}
+        _write_topic(tmp_path, "bad-executor-metrics-topic", annotation)
+        with patch.object(config, "CONTENT_DIR", tmp_path):
+            with pytest.raises(ManifestError, match="executor_metrics"):
+                load_annotation_manifest("bad-executor-metrics-topic")
+
+    def test_executor_metric_missing_key_raises(self, tmp_path):
+        annotation = {"executor_metrics": [{"spotlight": True}]}
+        _write_topic(tmp_path, "bad-executor-metrics-topic-2", annotation)
+        with patch.object(config, "CONTENT_DIR", tmp_path):
+            with pytest.raises(ManifestError, match="key"):
+                load_annotation_manifest("bad-executor-metrics-topic-2")
+
+
 class TestValidManifest:
     def test_full_rule_set(self, tmp_path):
         annotation = {

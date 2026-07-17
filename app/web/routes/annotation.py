@@ -103,6 +103,41 @@ def _duration_quantiles(app_ref: app_client.AppRef, stage: Dict[str, Any], manif
     return engine.spotlight_task_duration_quantiles(detail, manifest)
 
 
+async def _resolve_app_ref(checkpoint_data: Optional[Dict[str, Any]]) -> Optional[app_client.AppRef]:
+    """Same checkpoint-scoped-vs-most-recent-live resolution `_stages_context()`
+    does inline (issue #24) -- extracted so the executor_metrics reveal-time
+    pull (US-C10/US-C3, Decision A) can resolve the identical application
+    without duplicating that logic. `_stages_context()` itself is left
+    otherwise unchanged since it's also called by the ~6s-polled
+    `stage_metrics_fragment()` route, which executor_metrics deliberately
+    does not join (Decision A: a single reveal-time snapshot is sufficient,
+    no delta/polling needed for this signal)."""
+    if checkpoint_data:
+        checkpoint_app_id = checkpoint_data.get("app_id")
+        if not checkpoint_app_id:
+            return None
+        return await asyncio.to_thread(app_client.resolve_app, checkpoint_app_id, timeout_s=2.0)
+    return await asyncio.to_thread(app_client.resolve_current_app, timeout_s=2.0)
+
+
+def _executor_rows(app_ref: Optional[app_client.AppRef], manifest) -> Optional[List[Dict[str, Any]]]:
+    """Reveal-time evidence for US-C10/US-C3 (Decision A): per-executor
+    `executor_metrics` spotlighting from `/api/v1/applications/<id>/executors`,
+    mirroring `_stage_rows()`'s fetch->spotlight shape exactly, one level down
+    (executors instead of stages)."""
+    if app_ref is None:
+        return None
+    executors = app_client.fetch_executors(app_ref)
+    if not isinstance(executors, list):
+        return None
+    rows = []
+    for executor in executors:
+        if not isinstance(executor, dict):
+            continue
+        rows.append({"id": executor.get("id"), "metrics": engine.spotlight_executor_metrics(executor, manifest)})
+    return rows
+
+
 def _stage_rows(app_ref: Optional[app_client.AppRef], manifest) -> Optional[List[Dict[str, Any]]]:
     if app_ref is None:
         return None
@@ -208,6 +243,8 @@ async def reveal_annotation(request: Request, topic_id: str) -> HTMLResponse:
         "checkpoint": checkpoint_data,
         "manifest_error": None,
         "stale_warning": None,
+        "executor_metrics_enabled": False,
+        "executors": None,
     }
 
     if checkpoint_data is not None:
@@ -220,6 +257,16 @@ async def reveal_annotation(request: Request, topic_id: str) -> HTMLResponse:
             ctx["annotated_nodes"] = engine.annotate_plan(operators, manifest)
             ctx["stale_warning"] = await _stale_checkpoint_warning(checkpoint_data)
             ctx.update(await _stages_context(request, topic, checkpoint_data))
+
+            # US-C10/US-C3 (Decision A): only pulled when the topic's manifest
+            # actually declares executor_metrics -- most topics don't, and
+            # this stays a single reveal-time REST read, not a poll (unlike
+            # stage_metrics above, which _stages_context also feeds to the
+            # ~6s-polled stage_metrics_fragment() route).
+            if manifest.executor_metrics:
+                ctx["executor_metrics_enabled"] = True
+                app_ref = await _resolve_app_ref(checkpoint_data)
+                ctx["executors"] = await asyncio.to_thread(_executor_rows, app_ref, manifest)
 
     return templates.TemplateResponse(request, "fragments/annotation_reveal.html", ctx)
 

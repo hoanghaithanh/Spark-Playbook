@@ -1,15 +1,21 @@
 """Tests for app/annotation/engine.py (US-2.1 mapping precedence, US-2.2 spotlighting)."""
 from __future__ import annotations
 
-from app.annotation.engine import annotate_plan, spotlight_stage_metrics, spotlight_task_duration_quantiles
+from app.annotation.engine import (
+    annotate_plan,
+    spotlight_executor_metrics,
+    spotlight_stage_metrics,
+    spotlight_task_duration_quantiles,
+)
 from app.annotation.manifest import AnnotationManifest, PlanNodeRule, StageMetricRule
 
 
-def _manifest(plan_nodes, stage_metrics=None, task_duration_quantiles=False):
+def _manifest(plan_nodes, stage_metrics=None, executor_metrics=None, task_duration_quantiles=False):
     return AnnotationManifest(
         topic_id="test-topic",
         plan_nodes=plan_nodes,
         stage_metrics=stage_metrics or [],
+        executor_metrics=executor_metrics or [],
         task_duration_quantiles=task_duration_quantiles,
     )
 
@@ -163,6 +169,37 @@ class TestSpotlightStageMetrics:
         manifest = _manifest([], stage_metrics=[StageMetricRule(key="diskBytesSpilled", spotlight=False)])
         spotlighted = spotlight_stage_metrics({}, manifest)
         assert spotlighted["diskBytesSpilled"]["value"] is None
+
+
+class TestSpotlightExecutorMetrics:
+    """US-C10/US-C3 (Decision A): structurally identical to
+    spotlight_stage_metrics, sourced from an executor REST entry instead of a
+    stage one."""
+
+    def test_extracts_declared_keys_only(self):
+        manifest = _manifest(
+            [],
+            executor_metrics=[
+                StageMetricRule(key="memoryUsed", spotlight=True),
+                StageMetricRule(key="maxMemory", spotlight=False),
+            ],
+        )
+        executor = {"memoryUsed": 512_000, "maxMemory": 2_048_000, "totalGCTime": 40}
+        spotlighted = spotlight_executor_metrics(executor, manifest)
+        assert spotlighted == {
+            "memoryUsed": {"value": 512_000, "spotlight": True},
+            "maxMemory": {"value": 2_048_000, "spotlight": False},
+        }
+        assert "totalGCTime" not in spotlighted
+
+    def test_missing_key_in_executor_data_yields_none_value(self):
+        manifest = _manifest([], executor_metrics=[StageMetricRule(key="memoryUsed", spotlight=False)])
+        spotlighted = spotlight_executor_metrics({}, manifest)
+        assert spotlighted["memoryUsed"]["value"] is None
+
+    def test_no_declared_executor_metrics_yields_empty_dict(self):
+        manifest = _manifest([])
+        assert spotlight_executor_metrics({"memoryUsed": 1}, manifest) == {}
 
 
 class TestSpotlightTaskDurationQuantiles:
