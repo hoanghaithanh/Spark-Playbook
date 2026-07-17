@@ -46,11 +46,12 @@
 # notebook.ipynb's own measured-numbers comments): holding executor memory
 # constant and only doubling per-executor task concurrency for the fat run
 # reproduces the "5 cores per executor" heuristic's GC-pause-overhead
-# argument reliably (fat's GC-time fraction measured consistently higher
-# across repeated runs); an equal-per-task-memory-ratio split (the first
-# thing tried) did not -- see notebook.ipynb's intro cell and concept.md's
-# own deviation note for the full reasoning, including the honest wall-clock
-# caveat found by the same real run.
+# argument on most runs (fat's GC-time fraction measured higher across most
+# repeated runs, though not every run -- see notebook.ipynb cell 13's note);
+# an equal-per-task-memory-ratio split (the first thing tried) did not --
+# see notebook.ipynb's intro cell and concept.md's own deviation note for
+# the full reasoning, including the honest wall-clock and GC-fraction
+# caveats found by real runs.
 
 id: executor-tuning
 title: "Executor Tuning"

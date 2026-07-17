@@ -158,14 +158,20 @@ recognize low-utilization-despite-full-cluster symptoms.
   caps cores/memory well below that), so the shipped notebook substitutes `executor-cores=4`/
   `executor-memory=2g` (fat) vs. `executor-cores=2`/`executor-memory=2g` (right-sized) at fixed
   total cluster capacity — same concept (concurrent tasks sharing one heap vs. more headroom per
-  task), scaled to fit. Measured live against a real cluster (5 trials): **GC-time fraction**
-  reliably favors the right-sized run (~20-30% relative reduction). **Wall-clock does not**
-  reliably favor right-sizing at this project's small dev-cluster scale — added executor count
-  brings real shuffle fan-out/coordination overhead that can outweigh the GC saving on a toy
-  dataset. The notebook reports both numbers honestly rather than forcing a directional wall-clock
-  assertion; this criterion is satisfied by "measurable" GC-time-fraction difference plus a
-  measured (not necessarily favorable-direction) wall-clock number, not by a guaranteed wall-clock
-  win. See `content/executor-tuning/concept.md` and `manifest.yaml` for the in-topic disclosure.
+  task), scaled to fit. Measured live against a real cluster (5 manual trials): GC-time fraction
+  favored the right-sized run on those trials (~20-30% relative reduction), and wall-clock did
+  not reliably favor right-sizing at this project's small dev-cluster scale — added executor
+  count brings real shuffle fan-out/coordination overhead that can outweigh the GC saving on a
+  toy dataset.
+  **Correction, added 2026-07-17 during #37 (live acceptance run for #34 found this note's
+  GC-time-fraction claim was overstated):** GC-time-fraction direction is **not** guaranteed
+  either, same as wall-clock — a live acceptance run at this same dev-cluster scale observed it
+  flip (fat=0.0255 < right-sized=0.0264), contradicting the "reliably favors" wording above. The
+  notebook no longer hard-`assert`s a GC-fraction direction; it reports both numbers honestly,
+  same treatment as wall-clock. This criterion is satisfied by "measurable" GC-time-fraction and
+  wall-clock differences being captured and reported each run, not by a guaranteed direction for
+  either. See `content/executor-tuning/concept.md` and `manifest.yaml` for the in-topic
+  disclosure, and `docs/qa/executor-tuning-acceptance.md` for the acceptance-run evidence.
 - *Given* the Spark UI Executors tab exposes `totalGCTime` per executor via
   `/api/v1/applications/<id>/executors` (the same field already used by the Phase 2.5 dashboard's
   D-D decision), *when* the self-check evidence is defined, *then* it should reuse that existing

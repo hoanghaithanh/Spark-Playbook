@@ -91,10 +91,12 @@ cluster cores and memory either way) instead.
 
 **Honest result from actually running both configs (not assumed) on this
 dev-scale cluster:** the GC-time-fraction signal this topic's self-check
-spotlights held up reliably across repeated runs — the fat config's GC-time
-fraction measured consistently higher than the right-sized one's (~0.035 vs.
-~0.026 on one measured run, a ~30% relative gap). **Wall-clock did not
-reliably favor the right-sized run at this small scale** — with total
+spotlights held up on most runs — the fat config's GC-time fraction usually
+measured higher than the right-sized one's (~0.035 vs. ~0.026 on one measured
+run, a ~30% relative gap) — but **not on every run**: at least one real run
+at this scale saw the fraction flip (fat lower than right-sized), so the
+notebook reports the measured direction rather than asserting it. **Wall-clock
+did not reliably favor the right-sized run at this small scale either** — with total
 cluster cores held equal, doubling executor *count* (3 → 6) adds real
 shuffle fan-out/coordination overhead (more reduce-side JVMs, more network
 endpoints) that can outweigh the GC savings on a toy dataset. That crossover
