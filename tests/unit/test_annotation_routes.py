@@ -375,8 +375,8 @@ class TestRevealExecutorMetrics:
         there, `resolve_app()` succeeds but `fetch_executors()` fails. Here, no
         live application resolves at all (per the architecture doc's stated
         trade-off that this evidence source depends on a live :4040) --
-        `_resolve_app_ref()` returns None and `_executor_rows()` must short
-        circuit without ever calling fetch_executors()."""
+        `_stages_context()` resolves `app_ref` as None and `_executor_rows()`
+        must short circuit without ever calling fetch_executors()."""
         content_dir = tmp_path / "content"
         topic_dir = content_dir / "exec-metrics-no-app"
         topic_dir.mkdir(parents=True)
