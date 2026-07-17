@@ -101,9 +101,17 @@ button:disabled {
 .plan-nodes li.unknown {
   color: #94a3b8;
 }
-.plan-nodes .concept {
+.plan-nodes .concept-tag {
+  display: inline-block;
   color: #64748b;
   font-size: 0.85rem;
+  background: #f1f5f9;
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+.stage-metrics-scroll {
+  overflow-x: auto;
+  max-width: 100%;
 }
 table.stage-metrics {
   border-collapse: collapse;

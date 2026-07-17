@@ -37,7 +37,7 @@
       <li class="{{ 'known' if node.is_known else 'unknown' }}">
         <code>{{ node.operator }}</code>
         {% if node.is_known %}
-          &mdash; {{ node.label }} <span class="concept">[{{ node.concept }}]</span>
+          &mdash; {{ node.label }} <span class="concept-tag">[{{ node.concept }}]</span>
         {% else %}
           &mdash; <em>unknown / unannotated</em>
         {% endif %}
