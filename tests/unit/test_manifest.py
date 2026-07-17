@@ -117,6 +117,36 @@ class TestLoadRealWindowFunctionsManifest:
         assert manifest.task_duration_quantiles is False
 
 
+class TestLoadRealSerializationFormatsManifest:
+    """US-C8 (issue #30): this topic's self-check hypothesis (bytes-read
+    delta between row-oriented and columnar scans, and partition-filter
+    whole-file skipping) is a `stage_metrics` spotlighting case -- the
+    `inputBytes` field already exposed by `/api/v1/applications/<id>/stages`
+    -- not a new plan-node-labeling concept, per the requirements doc's own
+    disposition. `plan_nodes` only has a single generic `Scan` rule: found by
+    running the notebook for real against a live cluster that
+    `app/annotation/plan_parser.py`'s tokenizer only ever captures a node's
+    *first* word, so `Scan parquet`/`Scan csv` (this project's actual Spark
+    4.0.3 `explain(mode=\"formatted\")` output) both collapse to `Scan` --
+    two format-specific rules could never match. Same "label what the
+    notebook's plan actually contains" spirit as the other real-topic
+    classes above."""
+
+    def test_plan_nodes_label_generic_scan(self):
+        manifest = load_annotation_manifest("serialization-formats")
+        matches = [r.match for r in manifest.plan_nodes]
+        assert "Scan" in matches
+
+    def test_stage_metrics_spotlight_input_bytes(self):
+        manifest = load_annotation_manifest("serialization-formats")
+        spotlighted = {r.key for r in manifest.stage_metrics if r.spotlight}
+        assert "inputBytes" in spotlighted
+
+    def test_no_task_duration_quantiles_opt_in(self):
+        manifest = load_annotation_manifest("serialization-formats")
+        assert manifest.task_duration_quantiles is False
+
+
 class TestValidManifest:
     def test_full_rule_set(self, tmp_path):
         annotation = {
