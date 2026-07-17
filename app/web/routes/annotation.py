@@ -103,23 +103,6 @@ def _duration_quantiles(app_ref: app_client.AppRef, stage: Dict[str, Any], manif
     return engine.spotlight_task_duration_quantiles(detail, manifest)
 
 
-async def _resolve_app_ref(checkpoint_data: Optional[Dict[str, Any]]) -> Optional[app_client.AppRef]:
-    """Same checkpoint-scoped-vs-most-recent-live resolution `_stages_context()`
-    does inline (issue #24) -- extracted so the executor_metrics reveal-time
-    pull (US-C10/US-C3, Decision A) can resolve the identical application
-    without duplicating that logic. `_stages_context()` itself is left
-    otherwise unchanged since it's also called by the ~6s-polled
-    `stage_metrics_fragment()` route, which executor_metrics deliberately
-    does not join (Decision A: a single reveal-time snapshot is sufficient,
-    no delta/polling needed for this signal)."""
-    if checkpoint_data:
-        checkpoint_app_id = checkpoint_data.get("app_id")
-        if not checkpoint_app_id:
-            return None
-        return await asyncio.to_thread(app_client.resolve_app, checkpoint_app_id, timeout_s=2.0)
-    return await asyncio.to_thread(app_client.resolve_current_app, timeout_s=2.0)
-
-
 def _executor_rows(app_ref: Optional[app_client.AppRef], manifest) -> Optional[List[Dict[str, Any]]]:
     """Reveal-time evidence for US-C10/US-C3 (Decision A): per-executor
     `executor_metrics` spotlighting from `/api/v1/applications/<id>/executors`,
@@ -213,6 +196,7 @@ async def _stages_context(request: Request, topic, checkpoint_data: Optional[Dic
     return {
         **base,
         "app_id": app_id,
+        "app_ref": app_ref,
         "quantiles_enabled": manifest.task_duration_quantiles,
         # Issue #8 follow-up: fetch_stage_task_summary() (called inside
         # _stage_rows()) is a second blocking REST call per stage, on top of
@@ -256,16 +240,20 @@ async def reveal_annotation(request: Request, topic_id: str) -> HTMLResponse:
             operators = plan_parser.parse_operators(checkpoint_data.get("explain_formatted", ""))
             ctx["annotated_nodes"] = engine.annotate_plan(operators, manifest)
             ctx["stale_warning"] = await _stale_checkpoint_warning(checkpoint_data)
-            ctx.update(await _stages_context(request, topic, checkpoint_data))
+            stages_ctx = await _stages_context(request, topic, checkpoint_data)
+            ctx.update(stages_ctx)
 
             # US-C10/US-C3 (Decision A): only pulled when the topic's manifest
             # actually declares executor_metrics -- most topics don't, and
             # this stays a single reveal-time REST read, not a poll (unlike
             # stage_metrics above, which _stages_context also feeds to the
-            # ~6s-polled stage_metrics_fragment() route).
+            # ~6s-polled stage_metrics_fragment() route). Reuses the app_ref
+            # _stages_context() already resolved above (issue #24 code-review
+            # finding) instead of re-running the identical checkpoint-vs-live
+            # port-probe a second time per request.
             if manifest.executor_metrics:
                 ctx["executor_metrics_enabled"] = True
-                app_ref = await _resolve_app_ref(checkpoint_data)
+                app_ref = stages_ctx.get("app_ref")
                 ctx["executors"] = await asyncio.to_thread(_executor_rows, app_ref, manifest)
 
     return templates.TemplateResponse(request, "fragments/annotation_reveal.html", ctx)
