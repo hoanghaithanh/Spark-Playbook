@@ -1,0 +1,58 @@
+# Spark Playbook — topic manifest (PLAN.md §3 schema).
+#
+# US-C5 (supersedes/extends US-4.1): this topic's self-check hypotheses are
+# storage-level questions ("what fraction of this DataFrame is cached, and
+# where -- memory or disk?"), not plan-node-labeling questions. Per
+# US-C5/US-4.1's own acceptance criteria, that evidence lives on the Storage
+# tab / its REST equivalent (`/api/v1/applications/<id>/storage/rdd`) --
+# `numCachedPartitions`/`numPartitions` (fraction cached) and
+# `memoryUsed`/`diskUsed` per RDD block. Checked: app/spark_api/app_client.py
+# has no fetcher for this endpoint (its fetchers cover jobs/stages/executors/
+# tasks only), and app/annotation/manifest.py's schema has no `storage`-shaped
+# rule type -- so, same disposition as content/dag-lazy-evaluation/manifest.yaml
+# (US-C1), the notebook itself queries this REST endpoint directly (see its
+# `storage_snapshot()` helper, same shape as that topic's `jobs_snapshot()`),
+# no new annotation-engine capability needed.
+#
+# The `annotation:` section below still carries a minimal plan_nodes/
+# stage_metrics set for the plan-shape and shuffle-cost side of this topic
+# (the underlying join that produces the cached DataFrame still shuffles, and
+# a cached DataFrame's *re-reads* show up in the plan as `InMemoryTableScan`
+# rather than a repeated source scan) -- the same "minimal placeholder,
+# labels what the notebook's plan actually contains" spirit as every other
+# topic's manifest.
+
+id: caching-persistence
+title: "Caching & Persistence"
+order: 6
+content: concept.md
+notebook: notebook.ipynb
+
+cluster_defaults:
+  worker_count: 3
+  worker_cores: 2
+  worker_memory_gb: 4
+  shuffle_partitions: 200
+  aqe_enabled: false
+requires_kafka: false
+
+annotation:
+  plan_nodes:
+    - match: "InMemoryTableScan"
+      concept: cache-hit-scan
+      label: "Cached data served from memory/disk -- no re-execution of the source scan+join"
+    - match: "Exchange"
+      concept: shuffle-boundary
+      label: "Shuffle boundary (Exchange) -- the join that produces the cached DataFrame"
+    - match: "SortMergeJoin"
+      concept: sort-merge-join
+      label: "Sort-merge join (both sides shuffled + sorted) -- the expensive step caching avoids repeating"
+
+  stage_metrics:
+    - key: shuffleReadBytes
+      spotlight: true
+    - key: shuffleWriteBytes
+      spotlight: true
+    - key: numTasks
+    - key: executorRunTime
+      spotlight: true

@@ -78,6 +78,36 @@ class TestLoadRealDagLazyEvaluationTopic:
         assert "dag-lazy-evaluation" in ids
 
 
+class TestLoadRealCachingPersistenceTopic:
+    """Sanity check against the actual shipped content/caching-persistence/
+    (US-C5, issue #28) -- same coverage shape as
+    TestLoadRealDagLazyEvaluationTopic above."""
+
+    def test_manifest_fields(self):
+        topic = loader.load_topic("caching-persistence")
+        assert topic.id == "caching-persistence"
+        assert topic.title == "Caching & Persistence"
+        assert topic.requires_kafka is False
+        assert topic.cluster_defaults.worker_count == 3
+        assert topic.cluster_defaults.shuffle_partitions == 200
+
+    def test_concept_markdown_renders_to_html(self):
+        topic = loader.load_topic("caching-persistence")
+        html = topic.concept_html()
+        assert "cach" in html.lower()
+        assert "Storage tab" in html
+
+    def test_notebook_path_resolves(self):
+        topic = loader.load_topic("caching-persistence")
+        assert topic.notebook_path.name == "notebook.ipynb"
+        assert topic.notebook_path.exists()
+
+    def test_list_topics_includes_caching_persistence(self):
+        topics = loader.list_topics()
+        ids = [t.id for t in topics]
+        assert "caching-persistence" in ids
+
+
 class TestMissingTopicFailsClearly:
     def test_nonexistent_topic_id_raises(self):
         with pytest.raises(loader.TopicNotFoundError):

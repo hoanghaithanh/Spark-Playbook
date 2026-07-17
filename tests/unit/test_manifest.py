@@ -71,6 +71,28 @@ class TestLoadRealDagLazyEvaluationManifest:
         assert manifest.task_duration_quantiles is False
 
 
+class TestLoadRealCachingPersistenceManifest:
+    """US-C5 (issue #28): this topic's fraction-cached/storage-level self-check
+    evidence comes from the notebook's own REST /storage/rdd check (no
+    storage-shaped rule type exists in this schema), same disposition as
+    dag-lazy-evaluation's job-count check above -- the annotation section here
+    only labels the plan-shape/shuffle-cost side of the underlying join."""
+
+    def test_plan_nodes_include_cache_hit_scan(self):
+        manifest = load_annotation_manifest("caching-persistence")
+        matches = [r.match for r in manifest.plan_nodes]
+        assert "InMemoryTableScan" in matches
+
+    def test_stage_metrics_loaded(self):
+        manifest = load_annotation_manifest("caching-persistence")
+        keys = [r.key for r in manifest.stage_metrics]
+        assert "shuffleReadBytes" in keys
+
+    def test_no_task_duration_quantiles_opt_in(self):
+        manifest = load_annotation_manifest("caching-persistence")
+        assert manifest.task_duration_quantiles is False
+
+
 class TestValidManifest:
     def test_full_rule_set(self, tmp_path):
         annotation = {
