@@ -47,5 +47,15 @@
 
     <h3>Runtime stage metrics (self-check, US-2.2)</h3>
     {% include "fragments/stage_table.html" %}
+
+    {% if executor_metrics_enabled %}
+    <h3>Per-executor memory metrics (self-check, US-C10/US-C3)</h3>
+    <p class="annotation-hint">
+      Live per-executor storage-vs-execution memory usage, read fresh from
+      <code>/executors</code> each time you click Reveal -- click it again
+      after a competing job to see these numbers change.
+    </p>
+    {% include "fragments/executor_table.html" %}
+    {% endif %}
   {% endif %}
 </div>

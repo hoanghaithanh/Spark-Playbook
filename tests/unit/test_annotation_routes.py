@@ -183,6 +183,113 @@ class TestRevealStaleCheckpointWarning:
         assert "Stale checkpoint" not in resp.text
 
 
+class TestRevealExecutorMetrics:
+    """US-C10/US-C3 (Decision A): executor_metrics is a reveal-time-only
+    pull, gated on the topic's manifest declaring the section -- distinct
+    from stage_metrics, which is also fed to the ~6s poll route."""
+
+    def test_topic_without_executor_metrics_section_skips_the_pull(self, tmp_path, monkeypatch):
+        """join-strategies' manifest has no executor_metrics section."""
+        annotations_dir = tmp_path / "annotations"
+        _write_checkpoint(annotations_dir, "join-strategies", app_id="app-test-exec-0001")
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: [])
+        monkeypatch.setattr(
+            annotation_module.app_client, "fetch_all_app_ids", lambda timeout_s=3.0: ["app-test-exec-0001"]
+        )
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "resolve_app",
+            lambda app_id, timeout_s=3.0: AppRef(app_id=app_id, base_url="http://localhost:4040"),
+        )
+        calls = []
+        monkeypatch.setattr(
+            annotation_module.app_client, "fetch_executors", lambda app, timeout_s=3.0: calls.append(app) or []
+        )
+
+        with patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
+            resp = client.post("/topics/join-strategies/annotation/reveal")
+
+        assert resp.status_code == 200
+        assert calls == []  # no executors REST call made
+        assert "Per-executor memory metrics" not in resp.text
+
+    def test_topic_with_executor_metrics_section_renders_spotlighted_values(self, tmp_path, monkeypatch):
+        content_dir = tmp_path / "content"
+        topic_dir = content_dir / "exec-metrics-topic"
+        topic_dir.mkdir(parents=True)
+        manifest = {
+            "id": "exec-metrics-topic",
+            "title": "Exec Metrics",
+            "content": "concept.md",
+            "notebook": "notebook.ipynb",
+            "annotation": {"executor_metrics": [{"key": "memoryUsed", "spotlight": True}, {"key": "maxMemory"}]},
+        }
+        (topic_dir / "manifest.yaml").write_text(yaml.dump(manifest), encoding="utf-8")
+        (topic_dir / "concept.md").write_text("# ok", encoding="utf-8")
+        (topic_dir / "notebook.ipynb").write_text("{}", encoding="utf-8")
+
+        annotations_dir = tmp_path / "annotations"
+        _write_checkpoint(annotations_dir, "exec-metrics-topic", app_id="app-test-exec-0002")
+
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: [])
+        monkeypatch.setattr(
+            annotation_module.app_client, "fetch_all_app_ids", lambda timeout_s=3.0: ["app-test-exec-0002"]
+        )
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "resolve_app",
+            lambda app_id, timeout_s=3.0: AppRef(app_id=app_id, base_url="http://localhost:4040"),
+        )
+        executors = [
+            {"id": "0", "memoryUsed": 123456, "maxMemory": 999999},
+            {"id": "1", "memoryUsed": 654321, "maxMemory": 999999},
+        ]
+        monkeypatch.setattr(annotation_module.app_client, "fetch_executors", lambda app, timeout_s=3.0: executors)
+
+        with patch.object(config, "CONTENT_DIR", content_dir), patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
+            resp = client.post("/topics/exec-metrics-topic/annotation/reveal")
+
+        assert resp.status_code == 200
+        assert "Per-executor memory metrics" in resp.text
+        assert "123456" in resp.text
+        assert "654321" in resp.text
+
+    def test_unreachable_executors_rest_shows_clear_message(self, tmp_path, monkeypatch):
+        content_dir = tmp_path / "content"
+        topic_dir = content_dir / "exec-metrics-unreachable"
+        topic_dir.mkdir(parents=True)
+        manifest = {
+            "id": "exec-metrics-unreachable",
+            "title": "Exec Metrics Unreachable",
+            "content": "concept.md",
+            "notebook": "notebook.ipynb",
+            "annotation": {"executor_metrics": [{"key": "memoryUsed", "spotlight": True}]},
+        }
+        (topic_dir / "manifest.yaml").write_text(yaml.dump(manifest), encoding="utf-8")
+        (topic_dir / "concept.md").write_text("# ok", encoding="utf-8")
+        (topic_dir / "notebook.ipynb").write_text("{}", encoding="utf-8")
+
+        annotations_dir = tmp_path / "annotations"
+        _write_checkpoint(annotations_dir, "exec-metrics-unreachable", app_id="app-test-exec-0003")
+
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: [])
+        monkeypatch.setattr(
+            annotation_module.app_client, "fetch_all_app_ids", lambda timeout_s=3.0: ["app-test-exec-0003"]
+        )
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "resolve_app",
+            lambda app_id, timeout_s=3.0: AppRef(app_id=app_id, base_url="http://localhost:4040"),
+        )
+        monkeypatch.setattr(annotation_module.app_client, "fetch_executors", lambda app, timeout_s=3.0: None)
+
+        with patch.object(config, "CONTENT_DIR", content_dir), patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
+            resp = client.post("/topics/exec-metrics-unreachable/annotation/reveal")
+
+        assert resp.status_code == 200
+        assert "Could not reach" in resp.text
+
+
 class TestStageMetricsFragment:
     def test_invalid_manifest_shows_clear_message_not_500(self, tmp_path, monkeypatch):
         content_dir = tmp_path / "content"

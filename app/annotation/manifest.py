@@ -51,6 +51,12 @@ class AnnotationManifest:
     topic_id: str
     plan_nodes: List[PlanNodeRule] = field(default_factory=list)
     stage_metrics: List[StageMetricRule] = field(default_factory=list)
+    # US-C10/US-C3 (Decision A, docs/architecture/topic-shell-redesign.md):
+    # same shape as stage_metrics -- a list of REST-field keys to spotlight,
+    # just sourced from `/api/v1/applications/<id>/executors` (per-executor)
+    # instead of `/stages` (per-stage). Reuses StageMetricRule rather than a
+    # parallel dataclass since the shape (key + spotlight bool) is identical.
+    executor_metrics: List[StageMetricRule] = field(default_factory=list)
     # Issue #8: distinct from stage_metrics (which spotlights single-value
     # REST fields as-is) -- opts a topic into the true per-task duration
     # quantile distribution (min/p25/median/p75/max), which needs a second
@@ -106,13 +112,17 @@ def _parse_plan_node(raw: Any, topic_id: str, index: int) -> PlanNodeRule:
     )
 
 
-def _parse_stage_metric(raw: Any, topic_id: str, index: int) -> StageMetricRule:
+def _parse_metric_rule(raw: Any, topic_id: str, section: str, index: int) -> StageMetricRule:
+    """Shared parser for `stage_metrics` and `executor_metrics` -- both are a
+    plain list of `{key, spotlight}` mappings, identical shape, just sourced
+    from a different REST endpoint downstream (see AnnotationManifest's
+    `executor_metrics` docstring)."""
     if not isinstance(raw, dict):
-        raise ManifestError(f"{topic_id}: annotation.stage_metrics[{index}] must be a mapping")
+        raise ManifestError(f"{topic_id}: annotation.{section}[{index}] must be a mapping")
 
     key = raw.get("key")
     if not key or not isinstance(key, str):
-        raise ManifestError(f"{topic_id}: annotation.stage_metrics[{index}] is missing a string 'key'")
+        raise ManifestError(f"{topic_id}: annotation.{section}[{index}] is missing a string 'key'")
 
     return StageMetricRule(key=key, spotlight=bool(raw.get("spotlight", False)))
 
@@ -135,7 +145,14 @@ def load_annotation_manifest(topic_id: str) -> AnnotationManifest:
     stage_metrics_raw = raw.get("stage_metrics") or []
     if not isinstance(stage_metrics_raw, list):
         raise ManifestError(f"{topic_id}: annotation.stage_metrics must be a list")
-    stage_metrics = [_parse_stage_metric(r, topic_id, i) for i, r in enumerate(stage_metrics_raw)]
+    stage_metrics = [_parse_metric_rule(r, topic_id, "stage_metrics", i) for i, r in enumerate(stage_metrics_raw)]
+
+    executor_metrics_raw = raw.get("executor_metrics") or []
+    if not isinstance(executor_metrics_raw, list):
+        raise ManifestError(f"{topic_id}: annotation.executor_metrics must be a list")
+    executor_metrics = [
+        _parse_metric_rule(r, topic_id, "executor_metrics", i) for i, r in enumerate(executor_metrics_raw)
+    ]
 
     task_duration_quantiles = bool(raw.get("task_duration_quantiles", False))
 
@@ -143,5 +160,6 @@ def load_annotation_manifest(topic_id: str) -> AnnotationManifest:
         topic_id=topic_id,
         plan_nodes=plan_nodes,
         stage_metrics=stage_metrics,
+        executor_metrics=executor_metrics,
         task_duration_quantiles=task_duration_quantiles,
     )

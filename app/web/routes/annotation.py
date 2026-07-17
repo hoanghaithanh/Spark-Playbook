@@ -103,6 +103,24 @@ def _duration_quantiles(app_ref: app_client.AppRef, stage: Dict[str, Any], manif
     return engine.spotlight_task_duration_quantiles(detail, manifest)
 
 
+def _executor_rows(app_ref: Optional[app_client.AppRef], manifest) -> Optional[List[Dict[str, Any]]]:
+    """Reveal-time evidence for US-C10/US-C3 (Decision A): per-executor
+    `executor_metrics` spotlighting from `/api/v1/applications/<id>/executors`,
+    mirroring `_stage_rows()`'s fetch->spotlight shape exactly, one level down
+    (executors instead of stages)."""
+    if app_ref is None:
+        return None
+    executors = app_client.fetch_executors(app_ref)
+    if not isinstance(executors, list):
+        return None
+    rows = []
+    for executor in executors:
+        if not isinstance(executor, dict):
+            continue
+        rows.append({"id": executor.get("id"), "metrics": engine.spotlight_executor_metrics(executor, manifest)})
+    return rows
+
+
 def _stage_rows(app_ref: Optional[app_client.AppRef], manifest) -> Optional[List[Dict[str, Any]]]:
     if app_ref is None:
         return None
@@ -178,6 +196,7 @@ async def _stages_context(request: Request, topic, checkpoint_data: Optional[Dic
     return {
         **base,
         "app_id": app_id,
+        "app_ref": app_ref,
         "quantiles_enabled": manifest.task_duration_quantiles,
         # Issue #8 follow-up: fetch_stage_task_summary() (called inside
         # _stage_rows()) is a second blocking REST call per stage, on top of
@@ -208,6 +227,8 @@ async def reveal_annotation(request: Request, topic_id: str) -> HTMLResponse:
         "checkpoint": checkpoint_data,
         "manifest_error": None,
         "stale_warning": None,
+        "executor_metrics_enabled": False,
+        "executors": None,
     }
 
     if checkpoint_data is not None:
@@ -219,7 +240,21 @@ async def reveal_annotation(request: Request, topic_id: str) -> HTMLResponse:
             operators = plan_parser.parse_operators(checkpoint_data.get("explain_formatted", ""))
             ctx["annotated_nodes"] = engine.annotate_plan(operators, manifest)
             ctx["stale_warning"] = await _stale_checkpoint_warning(checkpoint_data)
-            ctx.update(await _stages_context(request, topic, checkpoint_data))
+            stages_ctx = await _stages_context(request, topic, checkpoint_data)
+            ctx.update(stages_ctx)
+
+            # US-C10/US-C3 (Decision A): only pulled when the topic's manifest
+            # actually declares executor_metrics -- most topics don't, and
+            # this stays a single reveal-time REST read, not a poll (unlike
+            # stage_metrics above, which _stages_context also feeds to the
+            # ~6s-polled stage_metrics_fragment() route). Reuses the app_ref
+            # _stages_context() already resolved above (issue #24 code-review
+            # finding) instead of re-running the identical checkpoint-vs-live
+            # port-probe a second time per request.
+            if manifest.executor_metrics:
+                ctx["executor_metrics_enabled"] = True
+                app_ref = stages_ctx.get("app_ref")
+                ctx["executors"] = await asyncio.to_thread(_executor_rows, app_ref, manifest)
 
     return templates.TemplateResponse(request, "fragments/annotation_reveal.html", ctx)
 

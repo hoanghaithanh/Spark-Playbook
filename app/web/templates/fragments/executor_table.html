@@ -1,0 +1,30 @@
+<div id="executor-table">
+  {% if executors is none %}
+    <p class="annotation-hint error">Could not reach the Spark REST API at :4040 for per-executor memory metrics.</p>
+  {% elif executors|length == 0 %}
+    <p class="annotation-hint">No executors reported yet.</p>
+  {% else %}
+  <div class="stage-metrics-scroll">
+  <table class="stage-metrics">
+    <thead>
+      <tr>
+        <th>Executor</th>
+        {% for rule_key in executors[0].metrics.keys() %}
+        <th class="{{ 'spotlight' if executors[0].metrics[rule_key].spotlight else '' }}">{{ rule_key }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in executors %}
+      <tr>
+        <td>{{ e.id }}</td>
+        {% for rule_key, m in e.metrics.items() %}
+        <td class="{{ 'spotlight' if m.spotlight else '' }}">{{ m.value }}</td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endif %}
+</div>
