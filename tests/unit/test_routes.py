@@ -7,10 +7,12 @@ panel reflects whatever the manager reports.
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
+import yaml
 from fastapi.testclient import TestClient
 
+from app import config
 from app.lifecycle.manager import ClusterState, ManagerStatus, SpawnOutcome
 from app.lifecycle.renderer import ClusterParams
 from app.main import app
@@ -50,10 +52,61 @@ class TestTopicPage:
         assert resp.status_code == 404
         assert "does-not-exist" in resp.text
 
-    def test_index_redirects_to_a_topic(self):
+    def test_index_renders_topics_landing_page(self):
+        """Issue #26: GET / renders an actual topics-index landing page
+        (one card per content/*/manifest.yaml topic) instead of redirecting
+        straight to the first topic."""
         resp = client.get("/", follow_redirects=False)
-        assert resp.status_code in (302, 307)
-        assert "/topics/" in resp.headers["location"]
+        assert resp.status_code == 200
+        assert "Topics" in resp.text
+        for topic_id in ("partitioning-shuffle", "join-strategies", "bucketing", "aqe", "catalyst-plans"):
+            assert f'href="/topics/{topic_id}"' in resp.text
+
+
+class TestTopicsIndexPage:
+    """Deeper checks on GET / (issue #26/US-SH5) beyond "all 5 ids appear
+    somewhere on the page": each card must pair the *right* order/title/
+    notebook together (not just have all values present anywhere), and an
+    empty content directory must render gracefully rather than erroring."""
+
+    def _write_topic(self, content_dir, topic_id, order, title, notebook_name="notebook.ipynb"):
+        topic_dir = content_dir / topic_id
+        topic_dir.mkdir()
+        (topic_dir / "manifest.yaml").write_text(
+            yaml.dump({"id": topic_id, "title": title, "order": order, "notebook": notebook_name}),
+            encoding="utf-8",
+        )
+        (topic_dir / "concept.md").write_text(
+            f"# {title}\n\n## What it is\n\nBlurb for {title}.\n", encoding="utf-8"
+        )
+        (topic_dir / notebook_name).write_text("{}", encoding="utf-8")
+
+    def test_each_card_pairs_its_own_order_title_and_notebook(self, tmp_path):
+        self._write_topic(tmp_path, "alpha-topic", order=2, title="Alpha Topic", notebook_name="alpha.ipynb")
+        self._write_topic(tmp_path, "beta-topic", order=1, title="Beta Topic", notebook_name="beta.ipynb")
+
+        with patch.object(config, "CONTENT_DIR", tmp_path):
+            resp = client.get("/")
+
+        assert resp.status_code == 200
+        # Cards render sorted by order -- beta (order 1) before alpha (order 2).
+        beta_pos = resp.text.index("Beta Topic")
+        alpha_pos = resp.text.index("Alpha Topic")
+        assert beta_pos < alpha_pos
+        assert "TOPIC 01" in resp.text and "TOPIC 02" in resp.text
+        # Each card's own notebook name must sit next to its own title, not
+        # the other card's -- slice the page around each title to check.
+        alpha_card = resp.text[alpha_pos - 200 : alpha_pos + 200]
+        beta_card = resp.text[beta_pos - 200 : beta_pos + 200]
+        assert "alpha.ipynb" in alpha_card and "beta.ipynb" not in alpha_card
+        assert "beta.ipynb" in beta_card and "alpha.ipynb" not in beta_card
+
+    def test_empty_content_dir_renders_page_with_no_cards_not_an_error(self, tmp_path):
+        with patch.object(config, "CONTENT_DIR", tmp_path):
+            resp = client.get("/")
+
+        assert resp.status_code == 200
+        assert "Topics" in resp.text
 
 
 class TestSpawnValid:

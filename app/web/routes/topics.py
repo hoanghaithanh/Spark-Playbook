@@ -13,7 +13,7 @@ so a single spawn/teardown POST keeps all three in sync (Decision C).
 from __future__ import annotations
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app import config
@@ -54,12 +54,13 @@ def _shell_context(request: Request, topic: loader.Topic) -> dict:
     return ctx
 
 
-@router.get("/", response_class=RedirectResponse)
-async def index() -> RedirectResponse:
+@router.get("/", response_class=HTMLResponse)
+async def index(request: Request) -> HTMLResponse:
+    """Topics-index landing page (US-SH5) -- one card per
+    content/*/manifest.yaml topic, sorted by `order`; adding/removing/
+    reordering a topic folder changes this page with zero code changes."""
     topics = loader.list_topics()
-    if not topics:
-        return RedirectResponse(url="/topics/partitioning-shuffle")
-    return RedirectResponse(url=f"/topics/{topics[0].id}")
+    return templates.TemplateResponse(request, "topics_index.html", {"request": request, "topics": topics})
 
 
 @router.get("/topics/{topic_id}", response_class=HTMLResponse)

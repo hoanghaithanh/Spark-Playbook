@@ -108,6 +108,109 @@ class TestLoadRealCachingPersistenceTopic:
         assert "caching-persistence" in ids
 
 
+class TestBlurb:
+    """Topic.blurb() (topics-index landing page, issue #26/US-SH5) derives a
+    card blurb from concept.md's "## What it is" section instead of a new
+    manifest field -- must work unchanged for every currently shipped topic
+    (no special-casing), and degrade to a synthetic fixture's exact expected
+    text so a regression in the extraction rule itself is caught."""
+
+    def test_first_paragraph_extracted_from_synthetic_fixture(self, tmp_path):
+        topic_dir = tmp_path / "blurb-topic"
+        topic_dir.mkdir()
+        (topic_dir / "manifest.yaml").write_text(
+            yaml.dump({"id": "blurb-topic", "title": "Blurb Topic", "content": "concept.md",
+                       "notebook": "notebook.ipynb"}),
+            encoding="utf-8",
+        )
+        (topic_dir / "concept.md").write_text(
+            "# Blurb Topic\n"
+            "\n"
+            "## What it is\n"
+            "\n"
+            "This is the first paragraph, spanning\n"
+            "two lines of prose.\n"
+            "\n"
+            "This second paragraph must not be included.\n"
+            "\n"
+            "## Another section\n"
+            "\n"
+            "Also not included.\n",
+            encoding="utf-8",
+        )
+        (topic_dir / "notebook.ipynb").write_text("{}", encoding="utf-8")
+
+        with patch.object(config, "CONTENT_DIR", tmp_path):
+            topic = loader.load_topic("blurb-topic")
+            blurb = topic.blurb()
+
+        assert blurb == "This is the first paragraph, spanning two lines of prose."
+
+    def test_missing_what_it_is_section_yields_empty_blurb_not_a_raise(self, tmp_path):
+        topic_dir = tmp_path / "no-section-topic"
+        topic_dir.mkdir()
+        (topic_dir / "manifest.yaml").write_text(
+            yaml.dump({"id": "no-section-topic", "title": "No Section", "content": "concept.md",
+                       "notebook": "notebook.ipynb"}),
+            encoding="utf-8",
+        )
+        (topic_dir / "concept.md").write_text("# No Section\n\nJust some text, no heading.\n", encoding="utf-8")
+        (topic_dir / "notebook.ipynb").write_text("{}", encoding="utf-8")
+
+        with patch.object(config, "CONTENT_DIR", tmp_path):
+            topic = loader.load_topic("no-section-topic")
+            assert topic.blurb() == ""
+
+    def test_every_real_topic_yields_a_non_empty_blurb(self):
+        """Regression guard for issue #26: every one of the 5 shipped
+        content/*/concept.md files follows the "# Title" / "## What it is"
+        convention -- if any drifted, this fails loudly instead of the
+        topics-index page silently shipping a blank card."""
+        for topic in loader.list_topics():
+            blurb = topic.blurb()
+            assert blurb, f"{topic.id} yielded an empty blurb"
+            assert not blurb.startswith("#")
+            # Coordinator-reported bug: every one of the 5 real "What it is"
+            # paragraphs uses inline **bold**/`code`/*italic* markdown, and
+            # blurb() renders as auto-escaped plain text (not through the
+            # `markdown` library), so raw markers must be stripped -- not
+            # leaked as literal `*`/`` ` `` characters on the card.
+            assert "*" not in blurb, f"{topic.id} blurb leaked a raw '*' marker: {blurb!r}"
+            assert "`" not in blurb, f"{topic.id} blurb leaked a raw '`' marker: {blurb!r}"
+
+    def test_inline_markdown_markers_are_stripped_not_rendered(self, tmp_path):
+        """Coordinator-reported bug: blurb() previously returned raw markdown
+        source, so `**bold**` and `` `code` `` showed up as literal asterisks/
+        backticks on the topics-index card (blurb() is auto-escaped plain
+        text, unlike concept_html() which runs through the `markdown`
+        library). The fix strips the marker characters, keeping the inner
+        words."""
+        topic_dir = tmp_path / "markdown-blurb-topic"
+        topic_dir.mkdir()
+        (topic_dir / "manifest.yaml").write_text(
+            yaml.dump({"id": "markdown-blurb-topic", "title": "Markdown Blurb", "content": "concept.md",
+                       "notebook": "notebook.ipynb"}),
+            encoding="utf-8",
+        )
+        (topic_dir / "concept.md").write_text(
+            "# Markdown Blurb\n"
+            "\n"
+            "## What it is\n"
+            "\n"
+            "A **bold** word, some `inline code`, and an *italic* word.\n",
+            encoding="utf-8",
+        )
+        (topic_dir / "notebook.ipynb").write_text("{}", encoding="utf-8")
+
+        with patch.object(config, "CONTENT_DIR", tmp_path):
+            topic = loader.load_topic("markdown-blurb-topic")
+            blurb = topic.blurb()
+
+        assert "*" not in blurb
+        assert "`" not in blurb
+        assert blurb == "A bold word, some inline code, and an italic word."
+
+
 class TestMissingTopicFailsClearly:
     def test_nonexistent_topic_id_raises(self):
         with pytest.raises(loader.TopicNotFoundError):

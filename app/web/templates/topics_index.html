@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Topics — Spark Playbook</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body class="topics-index-body">
+
+  {# Standalone-page top bar (no current topic on the landing page, so
+     fragments/_top_bar.html -- which requires `topic`/`all_topics` for its
+     breadcrumb dropdown and cluster state pill -- doesn't apply here; this
+     just reuses the same look). #}
+  <div class="top-bar">
+    <div class="top-bar-brand">
+      <span class="brand-mark"></span>
+      <span class="brand-name">Spark Playbook</span>
+    </div>
+  </div>
+
+  <main class="topics-index-main">
+    <div class="topics-eyebrow">SPARK PLAYBOOK</div>
+    <h1 class="topics-title">Topics</h1>
+    <p class="topics-subhead">A local PySpark learning tool — each topic pairs a concept with a live notebook and cluster.</p>
+
+    <div class="topics-grid">
+      {% for topic in topics %}
+      <a href="/topics/{{ topic.id }}" class="topic-card">
+        <div class="topic-card-header">
+          <span class="topic-card-eyebrow">TOPIC {{ '%02d' | format(topic.order) }}</span>
+          <span class="topic-card-notebook">{{ topic.notebook_path.name }}</span>
+        </div>
+        <div class="topic-card-title">{{ topic.title }}</div>
+        <div class="topic-card-blurb">{{ topic.blurb() }}</div>
+      </a>
+      {% endfor %}
+    </div>
+  </main>
+
+</body>
+</html>

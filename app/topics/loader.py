@@ -26,6 +26,22 @@ from app import config
 # field -- no bespoke per-topic markup or schema addition needed (G-SH1/G7).
 _STEP_HEADING_RE = re.compile(r"^##\s+(\d+)\.\s*(.+?)\s*$")
 
+# Matches this repo's own concept.md convention (every existing concept.md --
+# aqe, bucketing, catalyst-plans, join-strategies, partitioning-shuffle --
+# starts with "# Title" then a "## What it is" section), so the topics-index
+# landing page (US-SH5) can derive a blurb from that content instead of a new
+# manifest field -- same content-as-data precedent as _STEP_HEADING_RE above.
+_WHAT_IT_IS_RE = re.compile(r"^##\s+What it is\s*$", re.IGNORECASE)
+
+# Strips the exact inline markdown emphasis/code markers actually used in the
+# 5 shipped concept.md "What it is" paragraphs (**bold**, *italic*, `code`) --
+# blurb() renders as auto-escaped plain text (not run through the `markdown`
+# library like concept_html() is), so raw markers would otherwise show up as
+# literal asterisks/backticks on the topics-index card.
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+_CODE_RE = re.compile(r"`(.+?)`")
+_ITALIC_RE = re.compile(r"\*(.+?)\*")
+
 
 class TopicNotFoundError(Exception):
     pass
@@ -68,6 +84,39 @@ class Topic:
     def concept_html(self) -> str:
         raw = self.content_path.read_text(encoding="utf-8")
         return markdown.markdown(raw, extensions=["fenced_code", "tables"])
+
+    def blurb(self) -> str:
+        """First paragraph of prose under concept.md's "## What it is"
+        heading -- the topics-index landing page's (US-SH5) card blurb.
+        Deliberately not a manifest field (see module docstring/G-SH1
+        precedent): every existing concept.md already has this section, so
+        no schema change or per-topic special-casing is needed. Returns ""
+        if a concept.md doesn't follow the convention rather than raising --
+        the index page should still render (blurb-less card), not 500."""
+        raw = self.content_path.read_text(encoding="utf-8")
+        paragraph: List[str] = []
+        in_section = False
+        for line in raw.splitlines():
+            if _WHAT_IT_IS_RE.match(line):
+                in_section = True
+                continue
+            if not in_section:
+                continue
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                break  # next heading ends the section
+            if not stripped:
+                if paragraph:
+                    break  # blank line ends the first paragraph
+                continue
+            paragraph.append(stripped)
+        text = " ".join(paragraph)
+        # Bold before italic -- **x** would otherwise be partially consumed
+        # by the single-* pattern first, leaving stray asterisks behind.
+        text = _BOLD_RE.sub(r"\1", text)
+        text = _CODE_RE.sub(r"\1", text)
+        text = _ITALIC_RE.sub(r"\1", text)
+        return text
 
     def walkthrough_steps(self) -> List["WalkthroughStep"]:
         """Notebook tab step list (topic-shell redesign, US-SH7), parsed from
