@@ -298,4 +298,7 @@ anything that needs a second look) before issue #36 is considered done.
 
 ## Human sign-off
 
-_Pending._
+**Given, 2026-07-17.** All 5 US-C10 acceptance criteria approved as PASS; issue #36 considered done.
+The driver-vs-executor OOM nuance is accepted as documented, not a defect. The cross-worktree Docker
+Compose collision finding is accepted as a real, separate operational issue — tracked independently
+(not blocking this topic).
