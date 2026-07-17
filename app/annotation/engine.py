@@ -78,6 +78,21 @@ def spotlight_stage_metrics(stage: Dict[str, Any], manifest: AnnotationManifest)
     return result
 
 
+def spotlight_executor_metrics(executor: Dict[str, Any], manifest: AnnotationManifest) -> Dict[str, Dict[str, Any]]:
+    """Extracts exactly the manifest-declared `executor_metrics` keys from a
+    single executor's REST API JSON entry
+    (`/api/v1/applications/<id>/executors`), tagged with whether the manifest
+    marks each `spotlight: true`. Structurally identical to
+    `spotlight_stage_metrics()` -- values are passed through unmodified from
+    the REST response (Decision A, docs/architecture/topic-shell-redesign.md:
+    "an additive, symmetric extension of the existing metric-spotlight
+    mechanism -- not a new matching model")."""
+    result: Dict[str, Dict[str, Any]] = {}
+    for rule in manifest.executor_metrics:
+        result[rule.key] = {"value": executor.get(rule.key), "spotlight": rule.spotlight}
+    return result
+
+
 _QUANTILE_LABELS = ("min", "p25", "median", "p75", "max")
 
 

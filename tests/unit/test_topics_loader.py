@@ -169,6 +169,42 @@ class TestLoadRealSerializationFormatsTopic:
         assert "serialization-formats" in ids
 
 
+class TestLoadRealExecutorTuningTopic:
+    """Sanity check against the actual shipped content/executor-tuning/
+    (US-C3, issue #34) -- same coverage shape as
+    TestLoadRealSerializationFormatsTopic above. cluster_defaults uses this
+    platform's own max per-worker cores/memory (4 cores / 8GB, `app/
+    config.py` WORKER_CORES_RANGE/WORKER_MEMORY_GB_RANGE) so the notebook's
+    two executor configs both fit within a real worker's advertised budget
+    -- see manifest.yaml's own deviation-from-the-mockup comment."""
+
+    def test_manifest_fields(self):
+        topic = loader.load_topic("executor-tuning")
+        assert topic.id == "executor-tuning"
+        assert topic.title == "Executor Tuning"
+        assert topic.order == 9
+        assert topic.requires_kafka is False
+        assert topic.cluster_defaults.worker_count == 3
+        assert topic.cluster_defaults.worker_cores == 4
+        assert topic.cluster_defaults.worker_memory_gb == 8
+
+    def test_concept_markdown_renders_to_html(self):
+        topic = loader.load_topic("executor-tuning")
+        html = topic.concept_html()
+        assert "executor" in html.lower()
+        assert "totalGCTime" in html
+
+    def test_notebook_path_resolves(self):
+        topic = loader.load_topic("executor-tuning")
+        assert topic.notebook_path.name == "notebook.ipynb"
+        assert topic.notebook_path.exists()
+
+    def test_list_topics_includes_executor_tuning(self):
+        topics = loader.list_topics()
+        ids = [t.id for t in topics]
+        assert "executor-tuning" in ids
+
+
 class TestBlurb:
     """Topic.blurb() (topics-index landing page, issue #26/US-SH5) derives a
     card blurb from concept.md's "## What it is" section instead of a new
