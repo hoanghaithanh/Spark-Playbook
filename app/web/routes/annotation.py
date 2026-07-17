@@ -148,18 +148,7 @@ def _stage_rows(app_ref: Optional[app_client.AppRef], manifest) -> Optional[List
     return rows
 
 
-async def _stages_context(
-    request: Request, topic, checkpoint_data: Optional[Dict[str, Any]]
-) -> tuple[dict, Optional[app_client.AppRef]]:
-    """Returns `(template_context, app_ref)` -- `app_ref` is the live
-    application this call resolved (or None), returned alongside rather than
-    folded into the dict so it never leaks into a Jinja2 template context
-    (matches how `app_id`, not `app_ref`, is what templates actually render).
-    Callers that only need the dict (e.g. `stage_metrics_fragment()`) can
-    ignore the second element; `reveal_annotation()` reuses it to avoid a
-    second checkpoint-vs-live resolution for `_executor_rows()` (code-review
-    follow-up on issue #34 -- `_resolve_app_ref()` used to duplicate this
-    exact resolution a second time per request)."""
+async def _stages_context(request: Request, topic, checkpoint_data: Optional[Dict[str, Any]]) -> dict:
     base = {
         "request": request,
         "topic": topic,
@@ -175,7 +164,7 @@ async def _stages_context(
         # on every single poll cycle for as long as the panel stayed open,
         # instead of the same clear message Reveal already shows for the
         # identical failure mode.
-        return {**base, "app_id": None, "stages": None, "manifest_error": str(exc)}, None
+        return {**base, "app_id": None, "stages": None, "manifest_error": str(exc)}
 
     # Issue #24: a checkpoint's app_id records no port, and its application
     # may no longer be the *most recent* one live (a learner may have since
@@ -207,6 +196,7 @@ async def _stages_context(
     return {
         **base,
         "app_id": app_id,
+        "app_ref": app_ref,
         "quantiles_enabled": manifest.task_duration_quantiles,
         # Issue #8 follow-up: fetch_stage_task_summary() (called inside
         # _stage_rows()) is a second blocking REST call per stage, on top of
@@ -215,7 +205,7 @@ async def _stages_context(
         # whole synchronous helper the same way.
         "stages": await asyncio.to_thread(_stage_rows, app_ref, manifest),
         "manifest_error": None,
-    }, app_ref
+    }
 
 
 @router.get("/topics/{topic_id}/annotation", response_class=HTMLResponse)
@@ -250,7 +240,7 @@ async def reveal_annotation(request: Request, topic_id: str) -> HTMLResponse:
             operators = plan_parser.parse_operators(checkpoint_data.get("explain_formatted", ""))
             ctx["annotated_nodes"] = engine.annotate_plan(operators, manifest)
             ctx["stale_warning"] = await _stale_checkpoint_warning(checkpoint_data)
-            stages_ctx, app_ref = await _stages_context(request, topic, checkpoint_data)
+            stages_ctx = await _stages_context(request, topic, checkpoint_data)
             ctx.update(stages_ctx)
 
             # US-C10/US-C3 (Decision A): only pulled when the topic's manifest
@@ -258,11 +248,12 @@ async def reveal_annotation(request: Request, topic_id: str) -> HTMLResponse:
             # this stays a single reveal-time REST read, not a poll (unlike
             # stage_metrics above, which _stages_context also feeds to the
             # ~6s-polled stage_metrics_fragment() route). Reuses the app_ref
-            # _stages_context() already resolved above (code-review follow-up
-            # on issue #34) instead of re-running the identical checkpoint-vs-
-            # live port-probe a second time per request.
+            # _stages_context() already resolved above (issue #24 code-review
+            # finding) instead of re-running the identical checkpoint-vs-live
+            # port-probe a second time per request.
             if manifest.executor_metrics:
                 ctx["executor_metrics_enabled"] = True
+                app_ref = stages_ctx.get("app_ref")
                 ctx["executors"] = await asyncio.to_thread(_executor_rows, app_ref, manifest)
 
     return templates.TemplateResponse(request, "fragments/annotation_reveal.html", ctx)
@@ -273,5 +264,5 @@ async def stage_metrics_fragment(request: Request, topic_id: str) -> HTMLRespons
     """Polled every ~6s by HTMX (US-2.2) once Reveal has happened."""
     topic = loader.load_topic(topic_id)
     checkpoint_data = _latest_checkpoint(topic_id)
-    ctx, _app_ref = await _stages_context(request, topic, checkpoint_data)
+    ctx = await _stages_context(request, topic, checkpoint_data)
     return templates.TemplateResponse(request, "fragments/stage_table.html", ctx)

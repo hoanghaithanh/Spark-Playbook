@@ -1,0 +1,80 @@
+# Spark Playbook — topic manifest (PLAN.md §3 schema).
+#
+# US-C10 (supersedes/extends US-4.4): this topic's self-check hypotheses split
+# across two evidence sources, same disposition already established by
+# US-C5/US-C3 (docs/architecture/topic-shell-redesign.md Decision A):
+#
+# - "Is the ~3GB feature table fully cached, and which fraction?" and "which
+#   specific partitions are still cached vs. recomputed after eviction?" are
+#   storage-level questions answered by `/api/v1/applications/<id>/storage/rdd`
+#   -- no fetcher for this endpoint exists in app/spark_api/app_client.py and
+#   the annotation manifest schema has no storage-shaped rule type, so the
+#   notebook queries this REST endpoint directly (its `storage_snapshot()`
+#   helper), same pattern as content/caching-persistence/notebook.ipynb's own
+#   helper of the same name -- no new annotation-engine capability needed.
+# - "Did the competing shuffle evict cached storage blocks to make room for
+#   execution memory?" is executor-level runtime data
+#   (`memoryUsed`/`maxMemory` from `/api/v1/applications/<id>/executors` --
+#   `memoryUsed` is Spark's own *storage* memory used per executor, so it
+#   directly falls when blocks are evicted), not a plan-node fact -- this
+#   topic is the second real consumer (after Executor Tuning, #34) of the
+#   `executor_metrics` manifest mechanism Decision A introduced. Real Spark's
+#   executors REST response also nests a `memoryMetrics` object
+#   (`usedOnHeapStorageMemory`/...), but the flat top-level `memoryUsed`/
+#   `maxMemory` fields already demonstrate the storage-vs-execution
+#   contention this topic needs -- no dotted/nested-key parsing added to
+#   manifest.py/engine.py for fields the acceptance criteria don't require.
+#
+# The `annotation:` section's plan_nodes/stage_metrics below still label the
+# plan-shape/shuffle-cost side of the underlying cache + competing shuffle
+# (a cached DataFrame's re-reads show up as `InMemoryTableScan`; the
+# competing shuffle is a genuine `Exchange` + `Sort`/`SortMergeJoin`; spill
+# metrics connect back to US-4.4's original OOM-diagnosis criteria) -- same
+# "minimal placeholder, labels what the notebook's plan actually contains"
+# spirit as every other topic's manifest.
+
+id: memory-management
+title: "Memory Management"
+order: 9
+content: concept.md
+notebook: notebook.ipynb
+
+cluster_defaults:
+  # US-4.4/US-C10's ~3GB cached table plus a competing memory-hungry shuffle
+  # needs the same "single worker scaled up to 8GB" allowance already
+  # established for Phase 4 spill/skew topics (constraints doc) rather than
+  # the default 3-worker/4GB shape -- one deliberately memory-constrained
+  # executor is also what forces real eviction/spill instead of both fitting
+  # comfortably side by side.
+  worker_count: 1
+  worker_cores: 4
+  worker_memory_gb: 8
+  shuffle_partitions: 200
+  aqe_enabled: false
+requires_kafka: false
+
+annotation:
+  plan_nodes:
+    - match: "InMemoryTableScan"
+      concept: cache-hit-scan
+      label: "Cached data served from memory -- no re-execution of the source scan/aggregation for this partition"
+    - match: "Exchange"
+      concept: shuffle-boundary
+      label: "Shuffle boundary (Exchange) -- the competing job's execution-memory demand"
+    - match: "Sort"
+      concept: sort-execution-memory
+      label: "Sort -- execution memory, competes with cached storage blocks in the same unified pool"
+
+  stage_metrics:
+    - key: memoryBytesSpilled
+      spotlight: true
+    - key: diskBytesSpilled
+      spotlight: true
+    - key: shuffleReadBytes
+    - key: shuffleWriteBytes
+    - key: numTasks
+
+  executor_metrics:
+    - key: memoryUsed
+      spotlight: true
+    - key: maxMemory

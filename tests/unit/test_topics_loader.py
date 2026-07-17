@@ -182,7 +182,7 @@ class TestLoadRealExecutorTuningTopic:
         topic = loader.load_topic("executor-tuning")
         assert topic.id == "executor-tuning"
         assert topic.title == "Executor Tuning"
-        assert topic.order == 9
+        assert topic.order == 10
         assert topic.requires_kafka is False
         assert topic.cluster_defaults.worker_count == 3
         assert topic.cluster_defaults.worker_cores == 4

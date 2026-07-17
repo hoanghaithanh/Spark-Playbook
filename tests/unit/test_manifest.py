@@ -216,6 +216,28 @@ class TestValidManifestExecutorMetrics:
                 load_annotation_manifest("bad-executor-metrics-topic-2")
 
 
+class TestLoadRealMemoryManagementManifest:
+    """US-C10 (issue #36): storage-fraction-cached/which-partitions-cached
+    evidence comes from the notebook's own REST /storage/rdd checks (same
+    disposition as caching-persistence above); the eviction/contention self-
+    check evidence is the new executor_metrics mechanism (Decision A)."""
+
+    def test_executor_metrics_declared(self):
+        manifest = load_annotation_manifest("memory-management")
+        keys = [r.key for r in manifest.executor_metrics]
+        assert "memoryUsed" in keys
+        assert "maxMemory" in keys
+
+    def test_plan_nodes_include_cache_hit_scan(self):
+        manifest = load_annotation_manifest("memory-management")
+        matches = [r.match for r in manifest.plan_nodes]
+        assert "InMemoryTableScan" in matches
+
+    def test_no_task_duration_quantiles_opt_in(self):
+        manifest = load_annotation_manifest("memory-management")
+        assert manifest.task_duration_quantiles is False
+
+
 class TestValidManifest:
     def test_full_rule_set(self, tmp_path):
         annotation = {
