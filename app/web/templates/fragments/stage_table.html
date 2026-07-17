@@ -13,6 +13,7 @@
   {% elif stages|length == 0 %}
     <p class="annotation-hint">Application {{ app_id }} has no stages yet.</p>
   {% else %}
+  <div class="stage-metrics-scroll">
   <table class="stage-metrics">
     <thead>
       <tr>
@@ -55,5 +56,6 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% endif %}
 </div>
