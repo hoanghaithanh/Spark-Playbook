@@ -29,83 +29,35 @@ designed to be consulted *after* you've formed a hypothesis, not to explain thin
 
 ## Current status
 
-- **Phase 0 — cluster harness.** Built, tested, and working: render a Jinja2-templated
-  `docker-compose.yml`, bring up master + N workers + a driver/JupyterLab container, reach the
-  master UI/REST API and the driver's app UI/REST API from the host, run a real shuffle job, and
-  generate tunable skewed synthetic data. No web app required — see `compose/README.md`.
-- **Phase 1 — partitioning/shuffle topic, end-to-end in the web app.** Built, tested, and
-  acceptance-validated: a FastAPI + Jinja2/HTMX app with a topic page, a cluster control panel
-  (spawn/teardown with configurable workers/cores/memory/shuffle-partitions/AQE), and an embedded
-  JupyterLab iframe wired to the spawned cluster. Full acceptance results in
-  [`docs/acceptance/phase-1.md`](docs/acceptance/phase-1.md).
-- **Phase 2 — annotation engine + join strategies + bucketing + AQE.** Built, tested, and closed
-  out in Sprint 1: the self-check annotation engine, plus the join-strategies, bucketing, and AQE
-  curriculum topics.
-- **Phase 2.5 — realtime monitoring dashboard.** Built and bug-fixed. Acceptance report in
-  [`docs/acceptance/phase-2-5.md`](docs/acceptance/phase-2-5.md), pending final human sign-off
-  (all findings from the acceptance pass, including issue #22, are now resolved — see that
-  report's addendum for the corrected status).
-- **Sprint 3 — topic-page shell redesign.** Built, tested, and closed out: a unified topic-page
-  shell (Concept/Notebook/Self-check tabs, cluster-config drawer, breadcrumb topic switcher) and
-  the Phase 2.5 dashboard moving from a standalone route to an in-page slide-in panel. See
-  [`docs/requirements/topic-shell-redesign.md`](docs/requirements/topic-shell-redesign.md) and
-  [`docs/architecture/topic-shell-redesign.md`](docs/architecture/topic-shell-redesign.md).
-  Six new curriculum topics (DAG & Lazy Evaluation, Skew & Salting, Executor Tuning,
-  Checkpointing, Serialization Formats, Fault Tolerance & Lineage) are scoped alongside this in
-  [`docs/requirements/curriculum-topics-2026-07.md`](docs/requirements/curriculum-topics-2026-07.md)
-  but sequenced after the shell per a shell-first prioritization decision — not yet built.
-- **Sprint 4 — Catalyst plans topic + data-driven topics-index landing page.** Built, tested, and
-  closed out: a dedicated `content/catalyst-plans/` curriculum topic (parse → analyze → optimize
-  → physical-plan phases, DataFrame/SQL/UDF predicate-pushdown comparison, three-cell notebook
-  walkthrough), and `GET /` now rendering a real topics-index landing page — one card per
-  `content/*/manifest.yaml` topic (id, title, order, a blurb derived from each topic's
-  `concept.md`), sorted by `order`, with no hardcoded topic list — replacing the previous
-  307-redirect to the first topic. See [`docs/requirements/topic-shell-redesign.md`](docs/requirements/topic-shell-redesign.md)
-  (US-SH5, US-SH8) and [`docs/backlog.md`](docs/backlog.md) rows #31/#24 for acceptance evidence.
-- **Sprint 5 — four more curriculum topics.** Built, tested, and closed out: `content/dag-lazy-evaluation/`
-  (DAG & Lazy Evaluation, issue #27), `content/caching-persistence/` (Caching & Persistence, issue
-  #28), `content/window-functions/` (Window Functions, issue #29), and `content/serialization-formats/`
-  (Serialization Formats, issue #30) are each built, tested, code-reviewed with no blockers, and
-  live-acceptance-validated against a real cluster (all acceptance criteria PASS, human sign-off
-  given). These brought the topics-index landing page to 9 real topics. See
-  [`docs/backlog.md`](docs/backlog.md) rows #25/#14/#15/#29 and
-  [`docs/qa/serialization-formats-acceptance.md`](docs/qa/serialization-formats-acceptance.md) for
-  the latest acceptance evidence.
-- **Sprint 6 — executor tuning, memory management, skew & salting.** In progress:
-  `content/executor-tuning/` (Executor Tuning, issue #34) is built, tested, code-reviewed with no
-  blockers, and live-acceptance-validated against a real cluster (all 3 US-C3 acceptance criteria
-  PASS — see [`docs/qa/executor-tuning-acceptance.md`](docs/qa/executor-tuning-acceptance.md)),
-  human sign-off given. `content/memory-management/` (Memory Management, issue #36) is built,
-  tested, code-reviewed with no blockers, and live-acceptance-validated against a real cluster (all
-  5 US-C10 acceptance criteria PASS — see
-  [`docs/qa/memory-management-acceptance.md`](docs/qa/memory-management-acceptance.md)), pending
-  final human sign-off. Both topics share the same `executor_metrics` annotation-manifest mechanism
-  (a reveal-time REST pull from `/api/v1/applications/<id>/executors`, mirroring the existing
-  `stage_metrics` mechanism — see
-  [`docs/architecture/topic-shell-redesign.md`](docs/architecture/topic-shell-redesign.md) Decision
-  A). `content/skew-salting/` (Skew & Salting, issue #35) is built, tested, code-reviewed with no
-  blockers, and live-acceptance-validated against a real cluster (all 4 US-C2 acceptance criteria
-  PASS on re-validation, after a mid-sprint redesign from `groupBy(key).count()` to
-  `groupBy(key).agg(F.collect_list("amount"))` — see
-  [`docs/architecture/skew-salting-demo-mechanism.md`](docs/architecture/skew-salting-demo-mechanism.md)
-  and [`docs/qa/skew-salting-acceptance.md`](docs/qa/skew-salting-acceptance.md)), pending final
-  human sign-off. It teaches manual key-salting for skewed `groupBy` aggregations — a gap AQE's
-  automatic skew-*join* splitting can't reach, since that mechanism only has a second side to
-  rebalance against in a join. This brings the topics-index landing page to 12 real topics.
-- **Sprint 7 — public, single-user, authenticated deploy (v1.0 — Public Deploy).** Implemented and
-  security-audited (all audit findings remediated): a one-command `./deploy.sh` stands up a
-  containerized app + nginx reverse proxy on a VM, gated by HTTP basic auth and Let's Encrypt TLS,
-  with the spawned Spark cluster's ports bound to loopback only (never `0.0.0.0`). Final human
-  acceptance sign-off is still pending per this project's Definition of Done. See
-  [`docs/requirements/public-deploy.md`](docs/requirements/public-deploy.md),
-  [`docs/architecture/public-deploy.md`](docs/architecture/public-deploy.md), and the
-  [Deploy (single-user, remote)](#deploy-single-user-remote) section below for the full design and
-  operator checklist.
-- **Phase 3 (streaming/Kafka) and remaining Phase 4 curriculum topics** are backlogged, not yet
-  started.
+**Built and human-signed-off:** the Phase 0 cluster harness (`compose/README.md`), the Phase 1 web
+app (topic page, cluster control panel, embedded JupyterLab — `docs/acceptance/phase-1.md`), the
+Phase 2 self-check annotation engine, the Phase 2.5 realtime monitoring dashboard
+(`docs/acceptance/phase-2-5.md`), the unified topic-page shell (Concept/Notebook/Self-check tabs,
+cluster-config drawer, breadcrumb switcher), and a data-driven topics-index landing page (`GET /`,
+one card per `content/*/manifest.yaml` topic, no hardcoded list). 12 curriculum topics are built:
+partitioning/shuffle, join strategies, bucketing, AQE, Catalyst plans, DAG & lazy evaluation,
+caching & persistence, window functions, serialization formats, executor tuning, memory management,
+and skew & salting.
 
-For the full prioritized list of remaining work, see [`docs/backlog.md`](docs/backlog.md). For the
-phased roadmap and architecture in detail, see [`PLAN.md`](PLAN.md).
+**Currently in flight:**
+- **Sprint 6** (GitHub milestone #7, due 2026-07-20) — one item open: issue #31, a
+  `plan_parser.py` tokenizer tech-debt fix.
+- **v1.0 — Public Deploy** (GitHub milestone #8) — implemented and security-audited: a one-command
+  `./deploy.sh` stands up a containerized app + nginx reverse proxy on a VM, gated by HTTP basic
+  auth and Let's Encrypt TLS, with the spawned Spark cluster's ports bound to loopback only. The
+  live-VM acceptance checklist (real Linux VM + domain, real TLS issuance, real browser auth) has
+  not run yet — treat as merged, not yet live-verified. See
+  [`docs/requirements/public-deploy.md`](docs/requirements/public-deploy.md),
+  [`docs/architecture/public-deploy.md`](docs/architecture/public-deploy.md), and
+  [Deploy (single-user, remote)](#deploy-single-user-remote) below for the full design and operator
+  checklist.
+
+**Not yet started:** Phase 3 (streaming/Kafka) and the remaining Phase 4 curriculum topics
+(checkpointing, fault tolerance & lineage).
+
+For the full story-by-story history, acceptance evidence, and prioritized backlog, see
+[`docs/backlog.md`](docs/backlog.md). For the phased roadmap and architecture in detail, see
+[`PLAN.md`](PLAN.md).
 
 ## Quickstart
 
