@@ -65,7 +65,7 @@ class TestResolveCurrentApp:
             ref = app_client.resolve_current_app()
         assert ref is not None
         assert ref.app_id == "app-current"
-        assert ref.base_url == "http://localhost:4040"
+        assert ref.base_url == "http://127.0.0.1:4040"
 
     def test_no_running_application_on_any_port_returns_none(self):
         apps = [
@@ -100,7 +100,7 @@ class TestResolveCurrentApp:
             ref = app_client.resolve_current_app()
         assert ref is not None
         assert ref.app_id == "app-newer-on-4041"
-        assert ref.base_url == "http://localhost:4041"
+        assert ref.base_url == "http://127.0.0.1:4041"
 
     def test_missing_start_time_epoch_defaults_to_zero_not_raises(self):
         apps = [{"id": "app-current", "attempts": [{}]}]
@@ -136,7 +136,7 @@ class TestResolveApp:
             ref = app_client.resolve_app("app-target")
         assert ref is not None
         assert ref.app_id == "app-target"
-        assert ref.base_url == "http://localhost:4040"
+        assert ref.base_url == "http://127.0.0.1:4040"
 
     def test_finds_a_non_default_port_for_the_target_id(self):
         on_4040 = [{"id": "app-other", "attempts": [{}]}]
@@ -144,7 +144,7 @@ class TestResolveApp:
         with _mock_urlopen_by_port({4040: on_4040, 4041: on_4041}):
             ref = app_client.resolve_app("app-target")
         assert ref is not None
-        assert ref.base_url == "http://localhost:4041"
+        assert ref.base_url == "http://127.0.0.1:4041"
 
     def test_unknown_app_id_returns_none(self):
         apps = [{"id": "app-other", "attempts": [{}]}]

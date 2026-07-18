@@ -13,13 +13,39 @@ from __future__ import annotations
 
 import importlib
 import os
+import sys
 from unittest.mock import patch
+
+import pytest
+import yaml
 
 import app.config as config_module
 
 
 def _reload_config():
     return importlib.reload(config_module)
+
+
+@pytest.fixture(autouse=True)
+def _restore_reloaded_modules():
+    """Every test below reloads `app.config` (and sometimes
+    `app.spark_api.app_client` / `app.lifecycle.renderer`) under a patched
+    `os.environ` to exercise the real import-time default-vs-override branch
+    -- `importlib.reload` mutates the shared module object in place, so if a
+    test left it reloaded under a non-default env (e.g. an assertion failed
+    before its own `finally` ran, or a future test forgets one), every other
+    test importing `app.config`/`app_client` afterwards -- most notably
+    `tests/unit/test_app_client.py`'s CLUSTER_HOST-derived base_url
+    assertions -- would silently see the wrong module state depending on
+    collection order. Belt-and-suspenders on top of each test's own
+    try/finally: unconditionally reload all three back to today's real,
+    unpatched environment after every test here, pass or fail."""
+    yield
+    importlib.reload(config_module)
+    for name in ("app.spark_api.app_client", "app.lifecycle.renderer"):
+        mod = sys.modules.get(name)
+        if mod is not None:
+            importlib.reload(mod)
 
 
 class TestDevDefaultsPreserved:
@@ -125,3 +151,48 @@ def test_renderer_forwards_public_origin_into_compose_template():
             os.environ.pop("PUBLIC_ORIGIN", None)
             importlib.reload(config_module)
             importlib.reload(renderer)
+
+
+def test_rendered_compose_is_valid_yaml_in_deploy_and_dev_modes():
+    """BLOCKER regression (live acceptance validation of public-deploy work):
+    the spark-driver `command: >-` folded block scalar in
+    docker-compose.yml.j2 had a `{% if public_origin %}` line that, under the
+    renderer's trim_blocks=True/lstrip_blocks=True Jinja config, rendered its
+    flags at column 0 -- breaking out of the folded scalar and producing
+    invalid YAML (`could not find expected ':'`) whenever public_origin was
+    set, i.e. every real deploy via deploy.sh/PUBLIC_ORIGIN. Dev-mode
+    (public_origin empty) never exercised this branch, which is why the
+    existing render-only tests + compose/cli.py (dev-mode only) missed it.
+    """
+    from app.lifecycle import renderer
+
+    # Deploy mode: public_origin set -> must still be valid YAML, and must
+    # actually contain the base_url/allow_remote_access flags.
+    with patch.dict(os.environ, {"PUBLIC_ORIGIN": "https://demo.spark.test"}):
+        importlib.reload(config_module)
+        try:
+            importlib.reload(renderer)
+            renderer.render(renderer.ClusterParams())
+            rendered = config_module.COMPOSE_FILE.read_text(encoding="utf-8")
+            parsed = yaml.safe_load(rendered)  # raises yaml.YAMLError if invalid
+            driver_command = parsed["services"]["spark-driver"]["command"]
+            assert "--ServerApp.base_url=/jupyter/" in driver_command
+            assert "--ServerApp.allow_remote_access=True" in driver_command
+        finally:
+            os.environ.pop("PUBLIC_ORIGIN", None)
+            importlib.reload(config_module)
+            importlib.reload(renderer)
+
+    # Dev mode: public_origin empty -> valid YAML, deploy-only flags absent.
+    importlib.reload(config_module)
+    try:
+        importlib.reload(renderer)
+        renderer.render(renderer.ClusterParams())
+        rendered = config_module.COMPOSE_FILE.read_text(encoding="utf-8")
+        parsed = yaml.safe_load(rendered)
+        driver_command = parsed["services"]["spark-driver"]["command"]
+        assert "--ServerApp.base_url=/jupyter/" not in driver_command
+        assert "--ServerApp.allow_remote_access=True" not in driver_command
+    finally:
+        importlib.reload(config_module)
+        importlib.reload(renderer)

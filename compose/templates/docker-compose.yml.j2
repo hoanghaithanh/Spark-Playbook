@@ -151,8 +151,7 @@ services:
       /usr/local/bin/jupyter lab
       --config=/workspace/driver/jupyter_config.py
       --ip=0.0.0.0 --port=8888 --no-browser --allow-root
-      --ServerApp.token='' --ServerApp.password=''
-      {% if public_origin %}--ServerApp.base_url=/jupyter/ --ServerApp.allow_remote_access=True{% endif %}
+      --ServerApp.token='' --ServerApp.password=''{% if public_origin %} --ServerApp.base_url=/jupyter/ --ServerApp.allow_remote_access=True{% endif %}
       --notebook-dir=/workspace"
     environment:
       # Public deploy (D4): forwarded to jupyter_config.py's CSP
