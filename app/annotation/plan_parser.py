@@ -39,6 +39,14 @@ from typing import List
 # optional whole-stage-codegen '*' marker, stripped from the front of a tree
 # line before the operator name is read off.
 _TREE_PREFIX_RE = re.compile(r"^[\s:+\-|]*\*?\s*")
+# Captures only the node's first alphanumeric word (`.match()`, not `.search()`
+# / `.findall()`) -- e.g. "Scan parquet default.small (1)" tokenizes down to
+# just "Scan". This is intentional, not a bug: no shipped or planned topic
+# needs multi-word matching, and `engine.py::_rule_matches()` only ever sees
+# this single token (issue #31). A `manifest.yaml` `plan_nodes.match` rule
+# like `"Scan parquet"` or `"Sort [asc]"` will therefore silently never match
+# -- see `PlanNodeRule.match`'s docstring in `manifest.py` and PLAN.md §3 for
+# the manifest-author-facing version of this constraint.
 _OPERATOR_NAME_RE = re.compile(r"([A-Za-z][A-Za-z0-9]*)")
 
 # The numbered detail blocks below the tree always start, at column 0 (after

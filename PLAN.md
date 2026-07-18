@@ -380,6 +380,13 @@ requires_kafka: false          # true only for streaming topics (US-3.1)
 annotation:
   # plan-node → concept. `match` is tested against the node's operator name,
   # most-specific rule first. No line numbers.
+  #
+  # `match` is compared against only the node's first word, as tokenized by
+  # plan_parser.py (e.g. "Sort", not "Sort [asc]" or "Scan parquet") --
+  # multi-word/qualified matching is not supported (issue #31). To
+  # distinguish two operators sharing a first word, use `stage_metrics` /
+  # `task_duration_quantiles` instead -- see the Serialization Formats (#30)
+  # and Skew & Salting (#35) topics for precedent.
   plan_nodes:
     - match: "BroadcastHashJoin"   ; concept: broadcast-join       ; label: "Broadcast hash join (no shuffle of large side)"
     - match: "BroadcastExchange"   ; concept: broadcast-exchange   ; label: "Broadcast of small side"

@@ -20,6 +20,12 @@ class ManifestError(Exception):
 
 @dataclass(frozen=True)
 class PlanNodeRule:
+    # Matched against only the plan node's first word as tokenized by
+    # `plan_parser.parse_operators()` (e.g. `Sort`, not `Sort [asc]` or
+    # `Scan parquet`) -- multi-word/qualified matching is not supported
+    # (issue #31). If a topic needs to distinguish two operators that share a
+    # first word, use `stage_metrics`/`task_duration_quantiles` instead, as
+    # Serialization Formats (#30) and Skew & Salting (#35) both did.
     match: str
     concept: str
     label: str
