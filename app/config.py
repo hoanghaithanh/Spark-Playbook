@@ -6,6 +6,7 @@ FastAPI app and the standalone Phase 0 CLI agree on the same numbers.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 # Repo layout. app/config.py lives at <repo_root>/app/config.py.
@@ -48,10 +49,42 @@ IMAGE_NAME = "sparkpb/spark:4.0.3"
 APP_PORT = 8000
 APP_ORIGIN = f"http://localhost:{APP_PORT}"
 
-MASTER_JSON_URL = "http://localhost:8080/json/"
-MASTER_UI_URL = "http://localhost:8080"
-DRIVER_APP_UI_URL = "http://localhost:4040"
-JUPYTER_URL = "http://localhost:8888"
+# --- Public-deploy config split (docs/architecture/public-deploy.md D3) ---
+#
+# Two different audiences now read different URLs for the same cluster:
+#   - the app's own server-side fetches (master_client.py, app_client.py,
+#     manager.py) need a host that's reachable *from inside the app
+#     container* -- CLUSTER_HOST, default "127.0.0.1" (the deploy stack sets
+#     it to "host.docker.internal"). Literal IP, not the hostname
+#     "localhost": verified live on Windows that Python's urllib resolves
+#     "localhost" via a slow IPv6 (::1) attempt before falling back to IPv4
+#     -- ~2s wasted *per call*, and app_client._probe_ports() makes three
+#     such calls (DRIVER_APP_UI_PORTS) every ~2s collector cycle while the
+#     Cluster Monitor panel is open, which was making the dashboard look
+#     hung/unresponsive. Docker Desktop only ever publishes these ports on
+#     127.0.0.1 (IPv4) anyway, so the IP is also the more precise default.
+#   - the browser needs either a directly-reachable host:port (dev, no
+#     proxy in front) or a same-origin proxy subpath (deployed, behind
+#     nginx) -- JUPYTER_URL / MASTER_UI_URL, each independently
+#     env-overridable and defaulting to today's literal localhost URLs so
+#     the undeployed dev workflow is unchanged.
+# All defaults below reproduce pre-public-deploy behavior exactly when no
+# env vars are set (constraint: don't break `uvicorn app.main:app` run
+# directly for local dev).
+CLUSTER_HOST = os.environ.get("CLUSTER_HOST", "127.0.0.1")
+
+MASTER_JSON_URL = f"http://{CLUSTER_HOST}:8080/json/"
+DRIVER_APP_UI_URL = f"http://{CLUSTER_HOST}:4040"
+
+JUPYTER_URL = os.environ.get("JUPYTER_URL", "http://localhost:8888")
+MASTER_UI_URL = os.environ.get("MASTER_UI_URL", "http://localhost:8080")
+
+# Public HTTPS origin of a deployed instance (e.g. "https://spark.example.com"),
+# empty in dev. Forwarded into the spawned driver container as
+# SPARKPB_PUBLIC_ORIGIN (see compose/templates/docker-compose.yml.j2 +
+# driver/jupyter_config.py) so the embedded JupyterLab iframe's CSP
+# `frame-ancestors` allows the deployed origin, not just localhost.
+PUBLIC_ORIGIN = os.environ.get("PUBLIC_ORIGIN", "")
 
 # Driver Spark-UI/REST ports (issue #24). A learner switching topic notebooks
 # without shutting down the prior Jupyter kernel leaves that kernel's

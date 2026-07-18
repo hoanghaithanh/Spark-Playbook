@@ -94,6 +94,7 @@ def render(params: ClusterParams) -> None:
         "driver_memory_gb": params.driver_memory_gb,
         "shuffle_partitions": params.shuffle_partitions,
         "aqe_enabled": params.aqe_enabled,
+        "public_origin": config.PUBLIC_ORIGIN,
     }
 
     compose_tpl = env.get_template("docker-compose.yml.j2")

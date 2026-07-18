@@ -15,6 +15,21 @@
 #}
 spark.master                          spark://spark-master:7077
 
+# Reverse-proxy support (docs/architecture/public-deploy.md D2/D4): with
+# worker UI host ports dropped, worker UIs are reached *through* the master
+# UI instead. reverseProxyUrl matches the nginx location the deploy stack
+# proxies the master UI at (/spark-master) so links Spark renders internally
+# resolve correctly behind the proxy. Distinct from the app's own direct
+# loopback REST reads (:8080/json/, :4040/api/v1/...), which are unaffected
+# (verification step, ADR Risk R-PD5). Gated on public_origin (empty in dev):
+# reverseProxyUrl rewrites Spark's own asset/link paths unconditionally, which
+# breaks the master UI (unstyled, 404'd assets) when hit directly at :8080
+# with no nginx in front, i.e. every local-dev spawn.
+{% if public_origin %}
+spark.ui.reverseProxy                 true
+spark.ui.reverseProxyUrl              /spark-master
+{% endif %}
+
 # Query execution defaults (PLAN.md §2 template variables table)
 spark.sql.shuffle.partitions          {{ shuffle_partitions }}
 spark.sql.adaptive.enabled            {{ "true" if aqe_enabled else "false" }}
