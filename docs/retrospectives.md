@@ -170,3 +170,52 @@ sprint's stories. Human gave final sign-off on #30 2026-07-17. Sprint 5 mileston
   hang after the fact.
 - Sprint 6 has not yet been proposed as its own milestone; that's a separate sprint-planning step
   for the human to kick off, not bundled into this close-out.
+
+## Sprint 6 (2026-07-17 – 2026-07-21), closed 2026-07-18
+
+**Scope:** Three curriculum-topic stories from the confirmed Sprint 4-10 plan — Executor Tuning
+(issue #34, backlog #27), Memory Management (issue #36, backlog #32), Skew & Salting (issue #35,
+backlog #26) — plus a pre-existing tech-debt issue pulled in at the human's request, #31
+(`plan_parser.py` tokenizer first-word-only limitation).
+
+**Outcome:** All 4 issues shipped and closed. #36 merged `facb2e6` 2026-07-17; #34 merged `d4e410f`
+(`Fixes #34, Fixes #37`) 2026-07-17; #31 merged `8d172d5` (doc-only fix, human-approved YAGNI
+decision not to extend the tokenizer without a concrete need, no code-reviewer findings); #35 merged
+`15e1c12` (`Fixes #35, Fixes #46`) 2026-07-18. Milestone #7 closed 0 open / 5 closed
+(#34, #35, #36, #31, #46).
+
+**What went well:**
+- Executor Tuning (#34) and Memory Management (#36) shared the new `fetch_executors()` reveal-time
+  REST-pull mechanism as planned at sprint-planning time, and both shipped clean with human sign-off
+  the same day the sprint opened — the pairing rationale held up in practice.
+- The pipeline's live-acceptance-validation step did its job on #35: a clean code review told us
+  nothing about whether the taught Spark behavior actually matched what was claimed, and it was the
+  live run against a real 3-worker cluster that caught it.
+
+**What didn't go well:**
+- Skew & Salting (#35) failed 2 of 4 acceptance criteria on the first live-acceptance pass, across 3
+  independent trials — not a bug in the code, but a wrong claim about Spark internals.
+  `groupBy(key).count()`'s map-side partial aggregation absorbs row-count skew before it ever reaches
+  the shuffle, so the taught operation structurally could not produce the straggler the lesson
+  depended on, no matter how skewed the input data was. This triggered a live architect redesign
+  mid-sprint (`docs/architecture/skew-salting-demo-mechanism.md`): switch the taught operation to
+  `groupBy(key).agg(F.collect_list(...))`, which isn't map-side-combinable, and rephrase the salting
+  claim from "flattens the distribution" to "cuts the straggler's load by >=3x".
+- The redesign itself needed a second correction: during reimplementation the developer found the
+  architect's original "flattens" framing was mathematically impossible at the chosen salt-bucket
+  count (true flattening at 10 buckets/200 partitions would need tens of thousands of buckets) and
+  routed it back to the architect rather than quietly softening the wording itself — the fix landed
+  as a same-day amendment before re-validation. Re-validation then passed clean on all 4 criteria
+  (154.19x un-salted straggler ratio vs. 2x bar; 6.9x salted load reduction vs. 3x bar).
+- A test-engineer run mid-sprint stopped early, citing a nonexistent "background probe task" as the
+  reason to stop, and had to be resumed manually — a stall pattern worth flagging, not yet understood.
+
+**Try next sprint:**
+- For any curriculum topic whose entire pedagogical claim rests on "these are the real measured
+  numbers" (timing ratios, byte ratios, flattening claims), treat the live-acceptance pass as
+  load-bearing, not a formality — a clean code review is not evidence the underlying platform
+  behavior matches what's taught, as #35 showed twice over (once for the original operation choice,
+  once for the redesign's own numeric claim).
+- Watch for the test-engineer early-stop-on-fabricated-blocker pattern (citing work that doesn't
+  exist as a reason to halt) recurring in future sprints; one instance isn't enough to change process
+  yet, but a second should prompt investigation into the agent's tool-use loop.
