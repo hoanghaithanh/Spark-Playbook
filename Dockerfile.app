@@ -9,6 +9,17 @@
 # dependencies.
 FROM python:3.11-slim
 
+# The repo is bind-mounted (not COPY'd) at the SAME path inside this
+# container as on the host (D1), and this container runs as root -- without
+# this, Python writes root-owned __pycache__/*.pyc files straight into that
+# shared directory on import. On the LAN deploy path (deploy-lan/), that
+# directory IS the GitHub Actions runner's own checkout, and a non-root
+# runner user can't delete those root-owned files on the next checkout's
+# `git clean` (confirmed live: checkout hard-failed with EACCES on the
+# second automated deploy). Bytecode caching buys nothing for a
+# restarted-on-every-deploy container anyway.
+ENV PYTHONDONTWRITEBYTECODE=1
+
 # Docker CLI + Compose v2 plugin (D1: "the app shells out to `docker compose`,
 # see compose_ops.py") -- verified live (devops review) that Debian's own apt
 # archive does NOT carry a Compose v2 package on either bookworm or trixie
