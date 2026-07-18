@@ -17,8 +17,10 @@ Day to day it runs entirely on your own machine (Windows/WSL2 or Linux, Docker +
 with no other users and no network exposure beyond `localhost` — this is the default, unchanged
 mode, covered in Quickstart below. A one-command, single-user public deploy path also exists (see
 [Deploy (single-user, remote)](#deploy-single-user-remote)) if you want to reach it remotely
-instead — it's a separate, opt-in mode that does not change the single-user, no-multi-tenancy trust
-model, and does not affect the local workflow.
+instead, and a manual LAN-only deploy path (see
+[Deploy (LAN-only, home server)](#deploy-lan-only-home-server)) if you want it reachable on your
+home network without a domain or TLS — both are separate, opt-in modes that do not change the
+single-user, no-multi-tenancy trust model, and do not affect the local workflow.
 
 **The project's real differentiator (G1 — interview-depth over platform polish):** where a choice
 exists between spending effort on UI/platform sophistication versus on curriculum depth or
@@ -117,7 +119,8 @@ panel, and the topic's notebook opens in an embedded JupyterLab pointed at that 
 A one-command deploy path also exists if you want to reach the app remotely instead of only on
 `localhost`. It's a separate, opt-in mode from everything above — see
 [Deploy (single-user, remote)](#deploy-single-user-remote) below for the full walkthrough and its
-security model.
+security model, or [Deploy (LAN-only, home server)](#deploy-lan-only-home-server) for a
+no-domain/no-TLS variant meant for a homelab box on your own network.
 
 ## Deploy (single-user, remote)
 
@@ -222,6 +225,122 @@ This Windows/WSL2 combination (WSL2-native clone + host networking) is an adapta
 Linux-VM design the security audit actually covered — treat it as self-verify. Before trusting it,
 do the same check the ADR uses to catch a silent DooD mismatch: spawn a cluster and confirm
 `docker exec <a-spawned-container> ls /workspace` shows the real repo, not an empty directory.
+
+## Deploy (LAN-only, home server)
+
+A third way to run Spark Playbook: containerized like the remote-deploy path above, but reachable
+only on your local network at a bare IP (e.g. `http://192.168.0.131:8000`) — no domain, no TLS, no
+login. This is for a homelab box that never needs to be reachable from the internet, so the domain +
+Let's Encrypt machinery `deploy.sh` needs doesn't apply (Let's Encrypt's HTTP-01 challenge requires a
+real, publicly-resolvable domain — it cannot issue a certificate for a private IP at all). There's no
+packaged one-command script for this mode yet, unlike `./deploy.sh` — the steps below are the full
+manual procedure.
+
+**Trust model:** identical to local dev's single-user design, just widened from `localhost` to your
+whole LAN — no password, no TLS. Anyone on your network can reach the app and spawn/tear down Spark
+clusters using the homelab's resources. Don't use this mode on a LAN you don't trust.
+
+1. **Get the code onto the server.** If the server has no GitHub deploy key for a private repo, ship
+   the current commit straight from a clone that already has push/pull access — no GitHub
+   credentials needed on the server:
+   ```bash
+   git archive --format=tar HEAD | ssh user@server 'mkdir -p ~/Spark-Playbook && tar -x -C ~/Spark-Playbook'
+   ```
+   If that source checkout is on Windows with `core.autocrlf` on, normalize line endings on the
+   server afterward — `git archive` can carry CRLF through, which breaks `bash` scripts (`set -euo
+   pipefail` fails with `invalid option name` if the line has a trailing `\r`):
+   ```bash
+   find ~/Spark-Playbook -type f \( -name "*.sh" -o -name "*.py" -o -name "*.yml" -o -name "*.j2" \
+     -o -name "*.template" -o -name "*.conf" -o -name "Dockerfile*" \) -print0 \
+     | xargs -0 sed -i 's/\r$//'
+   ```
+
+2. **Build the images** (same as any other path):
+   ```bash
+   bash compose/build.sh                             # Spark cluster image
+   docker build -t sparkpb-app -f Dockerfile.app .    # app image
+   ```
+
+3. **Run the app container directly** — no nginx/certbot, which is the whole difference from
+   `deploy.sh` — bound to the host network so it's reachable on the LAN, with `PUBLIC_ORIGIN` set to
+   the server's LAN URL (needed so the embedded JupyterLab's CSP `frame-ancestors` allows this
+   origin) and `JUPYTER_URL`/`MASTER_UI_URL` pointed at the LAN IP too (their `localhost` defaults
+   resolve to the *browser's* machine, not the server, once you're off `localhost`):
+   ```bash
+   docker run -d --name sparkpb-app \
+     --restart unless-stopped \
+     --network host \
+     -v /var/run/docker.sock:/var/run/docker.sock \
+     -v <repo-path-on-server>:<repo-path-on-server> \
+     -w <repo-path-on-server> \
+     -e PUBLIC_ORIGIN=http://<server-lan-ip>:8000 \
+     -e JUPYTER_URL=http://<server-lan-ip>:8888/jupyter \
+     -e MASTER_UI_URL=http://<server-lan-ip>:8080 \
+     sparkpb-app \
+     uvicorn app.main:app --host 0.0.0.0 --port 8000
+   ```
+   `JUPYTER_URL` needs the `/jupyter` suffix: setting `PUBLIC_ORIGIN` also flips the driver's Jupyter
+   to `base_url=/jupyter/` (`driver/jupyter_config.py`), so the bare host:port 404s.
+
+4. **Forward the loopback-only ports onto the LAN interface.** The compose template publishes the
+   Spark Master UI (`:8080`), Jupyter (`:8888`), and the driver UI (`:4040-4042`) to `127.0.0.1`
+   only — correct for the `deploy.sh` topology (nginx sits on the same host loopback), but nothing is
+   listening on the LAN-facing interface in a nginx-less setup like this one. A small nginx sidecar,
+   bound only to the server's LAN IP (not `0.0.0.0`, which collides with Docker's own
+   `127.0.0.1:PORT` publish on the same port), forwards each port through. Two easy-to-miss details:
+   - **`proxy_set_header Host $http_host;`, not `$host`.** nginx's `$host` strips the port from the
+     forwarded `Host` header; Jupyter compares it against the browser's `Origin` header (which
+     includes the port) and blocks the mismatch as cross-origin — surfaces as a confusing "File Load
+     Error: Not Found" when opening a notebook, not an auth error.
+   - **Split the `/spark-master/static/` path out.** Setting `PUBLIC_ORIGIN` also turns on Spark's
+     `spark.ui.reverseProxyUrl=/spark-master` (`compose/templates/spark-defaults.conf.j2`), baking a
+     `/spark-master` prefix into every link Spark's UI generates. Its static-asset handler is *not*
+     prefix-aware and only serves real CSS/JS at the unprefixed path (prefixed requests fall back to
+     an HTML page — an unstyled dashboard) — but the per-app UI proxy *is* prefix-aware and 403s if
+     the prefix is stripped. Strip it only for `/spark-master/static/`; pass everything else through
+     unchanged.
+   ```nginx
+   server {
+       listen <server-lan-ip>:8080;
+       location /spark-master/static/ {
+           proxy_pass http://127.0.0.1:8080/static/;
+           proxy_set_header Host $http_host;
+       }
+       location / {
+           proxy_pass http://127.0.0.1:8080;
+           proxy_set_header Host $http_host;
+       }
+   }
+   server {
+       listen <server-lan-ip>:8888;
+       location / {
+           proxy_pass http://127.0.0.1:8888;
+           proxy_http_version 1.1;
+           proxy_set_header Upgrade $http_upgrade;
+           proxy_set_header Connection "upgrade";
+           proxy_set_header Host $http_host;
+           proxy_read_timeout 86400;
+       }
+   }
+   server {
+       listen <server-lan-ip>:4040;
+       location / { proxy_pass http://127.0.0.1:4040; proxy_set_header Host $http_host; }
+   }
+   # repeat for :4041 and :4042 (driver UI's fallback ports, PLAN.md/app/config.py DRIVER_APP_UI_PORTS)
+   ```
+   ```bash
+   docker run -d --name sparkpb-lan-proxy --restart unless-stopped --network host \
+     -v ./lan-proxy.conf:/etc/nginx/conf.d/default.conf:ro nginx:1.27-alpine
+   ```
+
+5. **Open the firewall** for the four ports above (`ufw allow 8000/tcp`, `8080/tcp`, `8888/tcp`,
+   `4040:4042/tcp`), plus whatever's already needed for SSH.
+
+6. **Redeploying after a code change:** re-run step 1's transfer, rebuild `sparkpb-app` (step 2),
+   then `docker rm -f sparkpb-app` and re-run step 3's `docker run`. Restarting the app container
+   resets its in-memory "is a cluster spawned?" state even though the underlying cluster keeps
+   running (same benign redeploy desync as the remote-deploy path, `deploy/README.md` §7) — tear down
+   and respawn from the UI afterward to resync.
 
 ## Project structure
 
