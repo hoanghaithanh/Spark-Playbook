@@ -1,0 +1,38 @@
+name: Deploy (LAN homelab)
+
+# Auto-deploys to the homelab server (README "Deploy (LAN-only, home
+# server)") on every push to main -- a direct commit or a merged PR. Runs on
+# a self-hosted runner physically on the homelab box itself, so `checkout`
+# is the only "code transfer" step needed (no SSH/git-archive workaround).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}   # manual re-trigger without an empty commit
+
+concurrency:
+  group: deploy-lan
+  # false, not true: cancelling a live run mid-`docker compose up` could
+  # leave the LAN stack half-recreated. Queue instead of cancel.
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: self-hosted   # the default label every runner gets; no custom
+                            # label needed while there's only one target runner
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to homelab (LAN-only)
+        env:
+          LAN_IP: ${{ vars.HOMELAB_LAN_IP }}
+        run: bash deploy-lan.sh
+
+      - name: Post-deploy health check
+        env:
+          LAN_IP: ${{ vars.HOMELAB_LAN_IP }}
+        run: bash deploy-lan/health-check.sh

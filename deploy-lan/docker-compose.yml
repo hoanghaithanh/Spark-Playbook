@@ -1,0 +1,67 @@
+# Spark Playbook — LAN-only deploy base stack (README "Deploy (LAN-only, home server)").
+#
+# Project name `sparkpb-lan`, deliberately distinct from `sparkpb` (the cluster
+# project independently managed via compose/cli.py) and `sparkpb-deploy`
+# (deploy/docker-compose.yml, the domain+TLS public stack) -- so this stack's
+# up/down never touches either.
+#
+# No TLS, no auth (LAN-only trust model, README) -- just the app, bound
+# directly to the LAN interface, plus an nginx sidecar forwarding the
+# cluster's loopback-only ports (Master UI/Jupyter/driver UI) onto the LAN.
+# Unlike deploy/docker-compose.yml there is no nginx-in-front-of-the-app and
+# no certbot service.
+#
+# Brought up by ../deploy-lan.sh, not run directly (needs REPO_HOST_PATH and
+# LAN_IP set first).
+name: sparkpb-lan
+
+services:
+  app:
+    build:
+      # `context` resolves relative to THIS compose file's directory
+      # (deploy-lan/), not the repo root -- same gotcha documented in
+      # deploy/docker-compose.yml. Dockerfile.app lives at the repo root, one
+      # level up.
+      context: ..
+      dockerfile: Dockerfile.app
+    # DooD path alignment (docs/architecture/public-deploy.md D1): mounting
+    # the repo at the SAME absolute path inside this container as on the host
+    # makes the spawned cluster's relative bind mounts (../../:/workspace,
+    # resolved by the host daemon) land on the real repo instead of an empty
+    # directory.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${REPO_HOST_PATH}:${REPO_HOST_PATH}
+    working_dir: ${REPO_HOST_PATH}
+    # network_mode: host, same reasoning as deploy/docker-compose.yml's app
+    # service: the spawned cluster's ports are published 127.0.0.1:PORT
+    # (loopback-only) by the host daemon, only reachable from a container via
+    # the real host loopback -- network_mode: host gives this container that
+    # same loopback, so app/config.py's CLUSTER_HOST default ("localhost")
+    # reaches the cluster directly, no override needed.
+    network_mode: host
+    environment:
+      PUBLIC_ORIGIN: http://${LAN_IP}:8000
+      # /jupyter suffix required: setting PUBLIC_ORIGIN also flips the
+      # driver's Jupyter to base_url=/jupyter/ (driver/jupyter_config.py) --
+      # confirmed live that the bare host:port 404s without it.
+      JUPYTER_URL: http://${LAN_IP}:8888/jupyter
+      MASTER_UI_URL: http://${LAN_IP}:8080
+    # 0.0.0.0, NOT 127.0.0.1 (unlike deploy/docker-compose.yml's app service)
+    # -- there is no nginx in front of the app itself here, so it must bind
+    # the LAN-facing interface directly for the app itself to be reachable.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    # network_mode: host: lets nginx reach the loopback-bound cluster ports
+    # (Master UI/Jupyter/driver UI, all published 127.0.0.1:PORT by the
+    # compose template) on the real host loopback, matching where they
+    # actually bind -- a bridge network would need each re-exposed to it.
+    network_mode: host
+    volumes:
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    environment:
+      LAN_IP: ${LAN_IP}
+    restart: unless-stopped

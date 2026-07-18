@@ -1,0 +1,79 @@
+# Spark Playbook — LAN-forwarding nginx sidecar (README "Deploy (LAN-only, home server)").
+#
+# Templated: the official nginx image's entrypoint renders this via envsubst
+# before starting nginx (mounted at /etc/nginx/templates/default.conf.template,
+# see ../docker-compose.yml), substituting ${LAN_IP} from the container's
+# environment. Only ${LAN_IP} is a real substitution target here -- every
+# other `$...` below is nginx's own runtime variable syntax (same convention
+# as deploy/nginx/default.conf.template's ${DOMAIN}).
+#
+# No TLS, no auth (LAN-only trust model). The app itself (:8000) needs no
+# forwarding here -- it's already bound to 0.0.0.0 directly by
+# ../docker-compose.yml's app service. This file only forwards the ports the
+# compose template publishes loopback-only: Master UI (:8080), Jupyter
+# (:8888), and the driver UI's three fallback ports (:4040-4042).
+#
+# listen ${LAN_IP}:<port>, NOT 0.0.0.0:<port> -- confirmed live that a
+# wildcard bind conflicts with Docker's own 127.0.0.1:<port> publish already
+# holding that port (two distinct specific-address binds coexist fine; a
+# wildcard bind after a specific one on the same port does not).
+
+server {
+    listen ${LAN_IP}:8080;
+
+    # Spark's reverseProxyUrl (compose/templates/spark-defaults.conf.j2,
+    # enabled whenever PUBLIC_ORIGIN/public_origin is set) bakes a
+    # /spark-master prefix into every link Spark's UI generates. Two
+    # different backend behaviors depending on sub-path (confirmed live):
+    #   - /spark-master/static/*  -- Jetty's static handler is NOT
+    #     reverseProxyUrl-aware; it only serves real content at the
+    #     unprefixed /static/* path, so the prefix must be stripped here or
+    #     every CSS/JS asset 404s into an HTML fallback (unstyled UI).
+    #   - everything else (root, /spark-master/proxy/app/... for the
+    #     per-app UI) -- Spark's own reverseProxy servlet IS prefix-aware and
+    #     expects the /spark-master prefix intact; stripping it there 403s.
+    #     Pass those through unchanged.
+    location /spark-master/static/ {
+        proxy_pass http://127.0.0.1:8080/static/;
+        proxy_set_header Host $http_host;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $http_host;
+    }
+}
+
+server {
+    listen ${LAN_IP}:8888;
+
+    location / {
+        proxy_pass http://127.0.0.1:8888;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        # $http_host, NOT $host -- $host strips the port from the forwarded
+        # Host header; Jupyter compares it against the browser's Origin
+        # header (which includes the port) and blocks the mismatch as
+        # cross-origin. Confirmed live: surfaces as a silent 404 on
+        # /api/contents/..., not an auth error ("File Load Error: Not
+        # Found" in the JupyterLab UI).
+        proxy_set_header Host $http_host;
+        proxy_read_timeout 86400;
+    }
+}
+
+server {
+    listen ${LAN_IP}:4040;
+    location / { proxy_pass http://127.0.0.1:4040; proxy_set_header Host $http_host; }
+}
+
+server {
+    listen ${LAN_IP}:4041;
+    location / { proxy_pass http://127.0.0.1:4041; proxy_set_header Host $http_host; }
+}
+
+server {
+    listen ${LAN_IP}:4042;
+    location / { proxy_pass http://127.0.0.1:4042; proxy_set_header Host $http_host; }
+}

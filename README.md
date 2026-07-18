@@ -342,6 +342,44 @@ clusters using the homelab's resources. Don't use this mode on a LAN you don't t
    running (same benign redeploy desync as the remote-deploy path, `deploy/README.md` §7) — tear down
    and respawn from the UI afterward to resync.
 
+### Automated (CI/CD)
+
+The manual steps above are also packaged into a non-interactive script (`deploy-lan.sh` at the repo
+root, plus the `deploy-lan/` directory: a `docker-compose.yml` for the app + LAN-forwarding nginx
+sidecar, and a templated `nginx/default.conf.template`) and wired up to run automatically on every
+push to `main` — a direct commit or a merged PR — via
+[`.github/workflows/deploy-lan.yml`](.github/workflows/deploy-lan.yml), on a **self-hosted GitHub
+Actions runner physically on the homelab box itself**. Because the runner already lives on the
+target machine, `actions/checkout` is the entire "get the code onto the server" step — no
+SSH/`git archive` workaround needed for this path.
+
+Every automated run tears down and respawns the Spark cluster itself too (not just the app+proxy
+containers) via `compose/cli.py`, for a full clean slate on each deploy — a deliberate trade-off:
+**any push to `main`, including a docs-only change, destroys whatever cluster work is in progress on
+the LAN.** `compose/cli.py`'s `render` subcommand needed a small `--public-origin` flag added for
+this (default `""`, unchanged behavior for existing manual/dev usage) — without it, the standalone
+CLI has no way to thread `PUBLIC_ORIGIN` through to the spawned cluster the way the app's own
+`renderer.py` already does, which would silently reintroduce the Jupyter CSP/`base_url` bugs
+described above on every automated deploy.
+
+One-time prerequisites, done once before the first push-triggered run (none of these are
+automatable from inside the workflow itself):
+
+1. **A self-hosted runner registered to this repo**, with Docker access (the runner's OS user needs
+   `docker` group membership) and `python3` + `jinja2` importable (`compose/cli.py`'s only
+   dependency). Settings → Actions → Runners → New self-hosted runner.
+2. **The `HOMELAB_LAN_IP` repository variable** (Settings → Secrets and variables → Actions →
+   Variables), e.g. `192.168.0.131` — passed into the workflow as `${{ vars.HOMELAB_LAN_IP }}`,
+   deliberately not hardcoded in any committed file or auto-detected at runtime (unreliable on a
+   multi-NIC box).
+3. **The firewall rules from step 5 above**, opened once on the box — they don't change per deploy,
+   so the workflow doesn't (and structurally can't, without passwordless `sudo`) manage them.
+
+Known, accepted gaps: there's no rollback if the post-deploy health check fails (the previous app
+container is already gone by then — `docker compose ... --force-recreate` has no undo); and if the
+runner or the homelab box itself is offline, a push just queues forever with no failure signal
+(GitHub doesn't fail a job that's never picked up).
+
 ## Project structure
 
 ```
@@ -349,8 +387,10 @@ compose/      Phase 0 cluster harness — Dockerfile, Jinja2 compose templates, 
 app/          Phase 1+ FastAPI web app — cluster lifecycle, topic pages, (later) annotation engine
 content/      Curriculum topics — one folder per topic (concept.md, notebook.ipynb, manifest.yaml)
 deploy/       Public-deploy base stack — nginx config, compose file, gitignored secrets/certs
+deploy-lan/   LAN-only deploy base stack — app + LAN-forwarding nginx sidecar, no TLS/secrets
 Dockerfile.app  Containerizes the app itself for the public-deploy base stack (deploy/)
 deploy.sh     One-command public deploy — see "Deploy (single-user, remote)" above
+deploy-lan.sh Non-interactive LAN-only deploy — see "Deploy (LAN-only, home server)" above
 docs/         Requirements, backlog, acceptance reports, architecture notes
 PLAN.md       Full technical design: architecture, key decisions, phased roadmap, named risks
 ```

@@ -89,10 +89,14 @@ def cmd_render(args: argparse.Namespace) -> int:
         "driver_memory_gb": args.driver_memory_gb,
         "shuffle_partitions": args.shuffle_partitions,
         "aqe_enabled": args.aqe_enabled,
-        # Standalone Phase 0 CLI has no deployed-instance concept -- always
+        # Standalone Phase 0 CLI has no deployed-instance concept by default --
         # dev/empty (docs/architecture/public-deploy.md D4's public_origin
-        # template var; kept only so this template stays renderable here).
-        "public_origin": "",
+        # template var). --public-origin is an explicit opt-in override for
+        # non-interactive deploy scripts (deploy-lan.sh) that need this CLI to
+        # respawn a cluster with the same base_url/CSP/reverseProxyUrl
+        # behavior app/lifecycle/renderer.py already applies for app-driven
+        # spawns -- unset, this stays "" and behavior is unchanged.
+        "public_origin": args.public_origin,
     }
 
     compose_tpl = env.get_template("docker-compose.yml.j2")
@@ -259,6 +263,16 @@ def build_parser() -> argparse.ArgumentParser:
     render_p.add_argument("--driver-memory-gb", dest="driver_memory_gb", type=int, default=DEFAULTS["driver_memory_gb"])
     render_p.add_argument("--shuffle-partitions", dest="shuffle_partitions", type=int, default=DEFAULTS["shuffle_partitions"])
     render_p.add_argument("--aqe", dest="aqe_enabled", action="store_true", default=DEFAULTS["aqe_enabled"])
+    render_p.add_argument(
+        "--public-origin",
+        dest="public_origin",
+        default="",
+        help=(
+            "Deployed-instance origin (e.g. http://192.168.0.131:8000), for "
+            "non-interactive deploy scripts. Default '' reproduces today's "
+            "dev-only behavior unchanged."
+        ),
+    )
     render_p.set_defaults(func=cmd_render)
 
     up_p = sub.add_parser("up", help="Tear down any previous stack (awaited), then bring the rendered stack up")
