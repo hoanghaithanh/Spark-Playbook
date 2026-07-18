@@ -205,6 +205,38 @@ class TestLoadRealExecutorTuningTopic:
         assert "executor-tuning" in ids
 
 
+class TestLoadRealSkewSaltingTopic:
+    """Sanity check against the actual shipped content/skew-salting/
+    (US-C2, issue #35) -- same coverage shape as
+    TestLoadRealExecutorTuningTopic above."""
+
+    def test_manifest_fields(self):
+        topic = loader.load_topic("skew-salting")
+        assert topic.id == "skew-salting"
+        assert topic.title == "Skew & Salting"
+        assert topic.order == 11
+        assert topic.requires_kafka is False
+        assert topic.cluster_defaults.worker_count == 3
+        assert topic.cluster_defaults.shuffle_partitions == 200
+        assert topic.cluster_defaults.aqe_enabled is False
+
+    def test_concept_markdown_renders_to_html(self):
+        topic = loader.load_topic("skew-salting")
+        html = topic.concept_html()
+        assert "salt" in html.lower()
+        assert "skewJoin" in html
+
+    def test_notebook_path_resolves(self):
+        topic = loader.load_topic("skew-salting")
+        assert topic.notebook_path.name == "notebook.ipynb"
+        assert topic.notebook_path.exists()
+
+    def test_list_topics_includes_skew_salting(self):
+        topics = loader.list_topics()
+        ids = [t.id for t in topics]
+        assert "skew-salting" in ids
+
+
 class TestBlurb:
     """Topic.blurb() (topics-index landing page, issue #26/US-SH5) derives a
     card blurb from concept.md's "## What it is" section instead of a new

@@ -238,6 +238,28 @@ class TestLoadRealMemoryManagementManifest:
         assert manifest.task_duration_quantiles is False
 
 
+class TestLoadRealSkewSaltingManifest:
+    """US-C2 (issue #35): the straggler-vs-flattened per-task duration/
+    shuffle-read-bytes comparison is stage/task-level runtime data, not a
+    plan-node fact -- a skewed and a salted `groupBy` produce the same plan
+    shape, so this topic declares no `plan_nodes` at all (same disposition
+    as executor-tuning's own manifest test above), just `stage_metrics` plus
+    the existing `task_duration_quantiles` opt-in (issue #8)."""
+
+    def test_stage_metrics_spotlight_shuffle_read_bytes(self):
+        manifest = load_annotation_manifest("skew-salting")
+        spotlighted = {r.key for r in manifest.stage_metrics if r.spotlight}
+        assert "shuffleReadBytes" in spotlighted
+
+    def test_no_plan_nodes(self):
+        manifest = load_annotation_manifest("skew-salting")
+        assert manifest.plan_nodes == []
+
+    def test_task_duration_quantiles_opt_in(self):
+        manifest = load_annotation_manifest("skew-salting")
+        assert manifest.task_duration_quantiles is True
+
+
 class TestValidManifest:
     def test_full_rule_set(self, tmp_path):
         annotation = {

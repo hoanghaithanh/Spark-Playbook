@@ -83,8 +83,15 @@ designed to be consulted *after* you've formed a hypothesis, not to explain thin
   (a reveal-time REST pull from `/api/v1/applications/<id>/executors`, mirroring the existing
   `stage_metrics` mechanism — see
   [`docs/architecture/topic-shell-redesign.md`](docs/architecture/topic-shell-redesign.md) Decision
-  A). Skew & Salting (issue #35) remains open. This brings the topics-index landing page to 11 real
-  topics.
+  A). `content/skew-salting/` (Skew & Salting, issue #35) is built, tested, code-reviewed with no
+  blockers, and live-acceptance-validated against a real cluster (all 4 US-C2 acceptance criteria
+  PASS on re-validation, after a mid-sprint redesign from `groupBy(key).count()` to
+  `groupBy(key).agg(F.collect_list("amount"))` — see
+  [`docs/architecture/skew-salting-demo-mechanism.md`](docs/architecture/skew-salting-demo-mechanism.md)
+  and [`docs/qa/skew-salting-acceptance.md`](docs/qa/skew-salting-acceptance.md)), pending final
+  human sign-off. It teaches manual key-salting for skewed `groupBy` aggregations — a gap AQE's
+  automatic skew-*join* splitting can't reach, since that mechanism only has a second side to
+  rebalance against in a join. This brings the topics-index landing page to 12 real topics.
 - **Sprint 7 — public, single-user, authenticated deploy (v1.0 — Public Deploy).** Implemented and
   security-audited (all audit findings remediated): a one-command `./deploy.sh` stands up a
   containerized app + nginx reverse proxy on a VM, gated by HTTP basic auth and Let's Encrypt TLS,

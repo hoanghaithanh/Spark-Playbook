@@ -1,0 +1,39 @@
+# Spark Playbook — topic manifest (PLAN.md §3 schema).
+#
+# US-C2 (issue #35): this topic's self-check hypothesis -- does the
+# straggler task's duration/shuffle-read-bytes gap flatten out after salting
+# -- is per-task runtime data, not a plan-node fact: a skewed `groupBy(key)
+# .count()` and a salted one produce the same plan shape
+# (`HashAggregate` -> `Exchange` -> `HashAggregate`), so there is nothing a
+# plan-node label could distinguish (same disposition as window-functions'
+# missing-partitionBy criterion). No `plan_nodes` section here. Evidence
+# comes entirely from the existing `stage_metrics` mechanism (US-2.2) plus
+# `task_duration_quantiles` (issue #8, same opt-in already used by
+# join-strategies/bucketing) for true per-task min/p25/median/p75/max --
+# already-supported REST data (`shuffleReadBytes`, task `duration`), no new
+# annotation-engine capability needed, per the requirements doc's explicit
+# note. Do not touch app/annotation/plan_parser.py or engine.py for this
+# topic (issue #31 is tracked separately).
+
+id: skew-salting
+title: "Skew & Salting"
+order: 11
+content: concept.md
+notebook: notebook.ipynb
+
+cluster_defaults:
+  worker_count: 3
+  worker_cores: 2
+  worker_memory_gb: 4
+  shuffle_partitions: 200
+  aqe_enabled: false
+requires_kafka: false
+
+annotation:
+  stage_metrics:
+    - key: shuffleReadBytes
+      spotlight: true
+    - key: numTasks
+    - key: executorRunTime
+
+  task_duration_quantiles: true

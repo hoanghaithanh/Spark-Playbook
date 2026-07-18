@@ -130,11 +130,14 @@ splitting — so I understand the technique for cases AQE can't rebalance (e.g.,
 with no join to redistribute against).
 
 - *Given* a dataset generated via the existing datagen utility (US-0.4) with one key covering ~60%
-  of rows, *when* I run `groupBy(key).count()`, *then* the Stages tab / REST task-list data shows
-  one straggler task whose duration and shuffle-read bytes are visibly larger than the rest.
+  of rows, *when* I run `groupBy(key).agg(F.collect_list("amount"))`, *then* the Stages tab / REST
+  task-list data shows one straggler task whose duration and shuffle-read bytes are visibly larger
+  than the rest.
 - *Given* the same aggregation, *when* I salt the hot key with a random `0–9` suffix, aggregate,
-  then strip the suffix and re-aggregate, *then* the per-task duration spread flattens (per
-  `topics-content-spec.md`'s stated target: “2–4s across all 200 tasks — no single straggler”).
+  then strip the suffix and re-aggregate, *then* the straggler's shuffle-read-bytes load drops by
+  roughly the salt-bucket count — at least 3x lower than the un-salted straggler's shuffle-read
+  bytes — not a flattening of the full 200-task distribution, which 10 salt buckets against 200
+  fixed shuffle partitions cannot achieve.
 - *Given* the topic's relationship to the existing AQE topic (US-2.5), *when* the concept content
   is written, *then* it explicitly states salting is a *manual* technique for cases
   `spark.sql.adaptive.skewJoin.enabled` cannot help with (no join to rebalance against) — not a
