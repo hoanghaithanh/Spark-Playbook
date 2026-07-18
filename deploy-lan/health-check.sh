@@ -17,9 +17,25 @@ if [ -z "${LAN_IP:-}" ]; then
     exit 1
 fi
 
+# `docker compose ... --force-recreate` (deploy-lan.sh) returns once
+# containers are STARTING, not once uvicorn/nginx are actually listening --
+# confirmed live that curling immediately after can hit a brief
+# connection-refused window before the fresh containers bind their ports.
+# Retry each curl for up to ~10s rather than failing on that startup race.
+curl_retry() {  # curl_retry <curl args...>
+    local attempt
+    for attempt in $(seq 1 10); do
+        if curl -fsSL --max-time 5 "$@"; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
 fail=0
 check() {  # check <description> <url>
-    if curl -fsSL --max-time 5 -o /dev/null "$2"; then
+    if curl_retry -o /dev/null "$2"; then
         echo "  OK   $1 ($2)"
     else
         echo "  FAIL $1 ($2)" >&2
@@ -38,13 +54,13 @@ check "Spark Master UI (/spark-master/ reverseProxy path)" "http://${LAN_IP}:808
 # unless nginx strips the prefix. Discover the actual asset URL Spark itself
 # renders (no hardcoded, Spark-version-specific filename) and confirm it's
 # really text/css, not the HTML fallback.
-css_path="$(curl -fsSL --max-time 5 "http://${LAN_IP}:8080/spark-master/" \
+css_path="$(curl_retry "http://${LAN_IP}:8080/spark-master/" \
     | grep -o 'href="/spark-master/static/[^"]*\.css"' | head -1 | cut -d'"' -f2 || true)"
 if [ -z "$css_path" ]; then
     echo "  FAIL Spark Master UI static asset: no stylesheet link found" >&2
     fail=1
 else
-    css_type="$(curl -fsSL --max-time 5 -o /dev/null -w '%{content_type}' "http://${LAN_IP}:8080${css_path}")"
+    css_type="$(curl_retry -o /dev/null -w '%{content_type}' "http://${LAN_IP}:8080${css_path}")"
     case "$css_type" in
         text/css*) echo "  OK   Spark Master UI static asset ($css_path -> $css_type)" ;;
         *) echo "  FAIL Spark Master UI static asset ($css_path -> '$css_type', expected text/css -- /spark-master/static/ prefix-strip likely broken" >&2
@@ -56,7 +72,7 @@ fi
 # strips the port, so Jupyter compares a portless Host against the browser's
 # Origin header (which includes the port) and false-blocks it. Send a real
 # Origin header with a port against the exact endpoint that silently 404'd.
-if curl -fsSL --max-time 5 -H "Origin: http://${LAN_IP}:8888" -o /dev/null \
+if curl_retry -H "Origin: http://${LAN_IP}:8888" -o /dev/null \
     "http://${LAN_IP}:8888/jupyter/api/contents/"; then
     echo "  OK   Jupyter /api/contents/ (with a port-bearing Origin header)"
 else
