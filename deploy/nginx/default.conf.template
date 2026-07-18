@@ -1,0 +1,73 @@
+# Spark Playbook — nginx reverse proxy config (docs/architecture/public-deploy.md D4).
+#
+# Templated: the official nginx image's entrypoint renders this via envsubst
+# before starting nginx (mounted at /etc/nginx/templates/default.conf.template,
+# see deploy/docker-compose.yml), substituting ${DOMAIN} from the container's
+# environment. Only ${DOMAIN} is a real substitution target here -- every
+# other `$...` below is nginx's own runtime variable syntax, left as-is
+# because no container env var happens to share those names (verified:
+# nginx's built-ins here -- $host, $request_uri, $binary_remote_addr,
+# $remote_addr, $http_upgrade, $ssl_certificate paths -- collide with none of
+# the base image's own env vars).
+
+# Blunt brute-force mitigation (OQ6), sized to clear the app's own HTMX
+# pollers (~1 req/6s) and one long-lived SSE connection per dashboard, not to
+# lock out after N failures (nginx OSS can't rate-limit selectively on 401).
+limit_req_zone $binary_remote_addr zone=auth:10m rate=10r/s;
+
+# HTTP :80 — ACME challenge webroot (certbot) + redirect everything else to HTTPS.
+server {
+    listen 80;
+    server_name ${DOMAIN};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# HTTPS :443 — the whole app, behind one basic-auth gate (US-PD3).
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    add_header Strict-Transport-Security "max-age=63072000" always;
+
+    # Server-level auth covers /, /jupyter/, /spark-master/, and the Jupyter
+    # WebSocket upgrade -- one gate for the whole app (US-PD3/US-PD6: this
+    # password is the entire trust boundary).
+    auth_basic           "Spark Playbook";
+    auth_basic_user_file /etc/nginx/htpasswd;
+    limit_req             zone=auth burst=20 nodelay;
+
+    location / {
+        # The containerized FastAPI app (D1), loopback-published.
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
+    location /jupyter/ {
+        # JupyterLab (D4) -- WebSocket kernels need the upgrade headers, and
+        # a long read timeout so a kernel/SSE connection isn't cut mid-cell.
+        proxy_pass http://127.0.0.1:8888;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_read_timeout 86400;
+    }
+
+    location /spark-master/ {
+        # Spark Master UI (D4) -- spark.ui.reverseProxy handles worker UIs,
+        # so no dedicated worker host ports are needed (D2).
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+    }
+}

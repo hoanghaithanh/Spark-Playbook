@@ -24,8 +24,21 @@
     driver_memory_gb      - spark.driver.memory, in GB (default 2, fixed) — also used to
                              cap the driver container so it fits the resource budget
     repo_root_container    - absolute path to bind-mount the repo into containers (/workspace)
+    public_origin        - deployed instance's public HTTPS origin (docs/architecture/
+                            public-deploy.md D4), empty string in dev; forwarded to the
+                            driver as SPARKPB_PUBLIC_ORIGIN for driver/jupyter_config.py's
+                            CSP frame-ancestors allowlist
 
   No Kafka service (Phase 3, out of scope here). No `include_kafka` conditional yet.
+
+  Port surface (docs/architecture/public-deploy.md D2): every published port
+  below binds 127.0.0.1 only, never 0.0.0.0 — the internet-facing port surface
+  is nginx's 80/443 in the separate deploy/ base stack, not this spawned
+  cluster. Master's `6066` (REST submission, unused) and the worker UI ports
+  are dropped entirely (worker UIs are reached through the master's own
+  reverseProxy, see spark-defaults.conf.j2); the driver's `7078`/`7079`
+  (spark.driver.port / blockManager.port) are pinned but no longer published —
+  they're intra-cluster only, reached by other containers via Docker DNS.
 
   Network: dedicated bridge network so `spark://spark-master:7077` resolves by
   container DNS (PLAN.md §1). Compose's default network naming already gives us
@@ -46,8 +59,9 @@ services:
       /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
       --host spark-master --port 7077 --webui-port 8080
     ports:
-      - "8080:8080"   # master web UI + /json/ readiness endpoint
-      - "6066:6066"   # standalone REST submission server (unused; client mode only)
+      - "127.0.0.1:8080:8080"   # master web UI + /json/ readiness endpoint, loopback only (D2)
+      # 6066 (standalone REST submission server, unused; client mode only) is
+      # deliberately not published (D2 — drop unused ports from the surface).
       # NOTE: port 7077 (the cluster port) is intentionally NOT published to the
       # host. Only in-network containers dial spark://spark-master:7077, resolved
       # via Docker embedded DNS (PLAN.md §1) — the host never needs to reach it
@@ -80,8 +94,9 @@ services:
       SPARK_WORKER_MEMORY: "{{ worker_memory_gb }}g"
     depends_on:
       - spark-master
-    ports:
-      - "{{ 8081 + i - 1 }}:8081"   # worker UI (spark-worker-1 -> 8081, -2 -> 8082, ...)
+    # No host ports published (D2): worker UIs are reached through the
+    # master's own reverseProxy (spark.ui.reverseProxy=true in
+    # spark-defaults.conf.j2), not by a dedicated host port per worker.
     volumes:
       - ../../:/workspace
       - ./spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro
@@ -120,20 +135,35 @@ services:
     # used to be hardcoded to '*' on this command line) -- jupyter_config.py
     # is now the single source of truth for that setting, scoped to the
     # app's actual origin instead of a wildcard.
+    #
+    # `--ServerApp.base_url=/jupyter/` + `--ServerApp.allow_remote_access=True`
+    # (docs/architecture/public-deploy.md D4): served at a `/jupyter` subpath
+    # so nginx can reverse-proxy it alongside the app and the master UI on one
+    # domain, and reachable when proxied from a different Host header than
+    # `localhost`/`127.0.0.1` (Jupyter's own remote-access guard, distinct
+    # from the CSP `frame-ancestors` check in jupyter_config.py). Gated on
+    # public_origin (empty in dev): the app's iframe src is built from
+    # JUPYTER_URL, which stays the plain `http://localhost:8888` root path in
+    # dev (app/config.py) -- forcing base_url=/jupyter/ unconditionally here
+    # 404s that iframe, since Jupyter would then only serve under /jupyter/.
     command: >-
       bash -c "export PYTHONPATH=/opt/spark/python:$(ls /opt/spark/python/lib/py4j-*-src.zip):$$PYTHONPATH &&
       /usr/local/bin/jupyter lab
       --config=/workspace/driver/jupyter_config.py
       --ip=0.0.0.0 --port=8888 --no-browser --allow-root
-      --ServerApp.token='' --ServerApp.password=''
+      --ServerApp.token='' --ServerApp.password=''{% if public_origin %} --ServerApp.base_url=/jupyter/ --ServerApp.allow_remote_access=True{% endif %}
       --notebook-dir=/workspace"
+    environment:
+      # Public deploy (D4): forwarded to jupyter_config.py's CSP
+      # frame-ancestors allowlist. Empty string in dev (unchanged behavior).
+      SPARKPB_PUBLIC_ORIGIN: "{{ public_origin }}"
     depends_on:
       - spark-master
 {% for i in range(1, worker_count + 1) %}
       - spark-worker-{{ i }}
 {% endfor %}
     ports:
-      - "8888:8888"   # JupyterLab
+      - "127.0.0.1:8888:8888"   # JupyterLab, loopback only (D2)
       # PLAN.md §6/R2 names the risk directly, but only mitigated it
       # instructionally ("tell the learner to spark.stop()"), which doesn't
       # actually prevent or detect it. Issue #15 (Phase 2 acceptance
@@ -146,9 +176,10 @@ services:
       # confidently for the wrong (old) application the whole time. Publish
       # a small fallback range so a bumped session stays reachable instead
       # of silently vanishing.
-      - "4040-4042:4040-4042"   # driver application UI + /api/v1/... REST (+ 2 fallback ports)
-      - "7078:7078"   # spark.driver.port (pinned, PLAN.md §6/R1)
-      - "7079:7079"   # spark.blockManager.port (pinned, PLAN.md §6/R1)
+      - "127.0.0.1:4040-4042:4040-4042"   # driver application UI + /api/v1/... REST (+ 2 fallback ports), loopback only (D2)
+      # spark.driver.port / spark.blockManager.port (pinned, PLAN.md §6/R1)
+      # are intentionally NOT published (D2) -- intra-cluster only, reached
+      # by other containers via Docker DNS (`spark-driver:7078`/`:7079`).
     volumes:
       - ../../:/workspace
       - ./spark-defaults.conf:/opt/spark/conf/spark-defaults.conf:ro

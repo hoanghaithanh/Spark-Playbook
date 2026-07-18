@@ -89,6 +89,10 @@ def cmd_render(args: argparse.Namespace) -> int:
         "driver_memory_gb": args.driver_memory_gb,
         "shuffle_partitions": args.shuffle_partitions,
         "aqe_enabled": args.aqe_enabled,
+        # Standalone Phase 0 CLI has no deployed-instance concept -- always
+        # dev/empty (docs/architecture/public-deploy.md D4's public_origin
+        # template var; kept only so this template stays renderable here).
+        "public_origin": "",
     }
 
     compose_tpl = env.get_template("docker-compose.yml.j2")

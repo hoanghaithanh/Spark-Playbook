@@ -1,0 +1,101 @@
+# Spark Playbook — public-deploy base stack (docs/architecture/public-deploy.md D1).
+#
+# Project name `sparkpb-deploy`, deliberately distinct from the `sparkpb`
+# project the app spawns per-session via Docker-out-of-Docker (compose_ops.py
+# against the host socket) -- so `docker compose -p sparkpb down` from the app
+# never touches this stack, and redeploying this stack never touches a
+# running spawned cluster (OQ7).
+#
+# Brought up by ./deploy.sh, not run directly on a fresh checkout (it needs
+# REPO_HOST_PATH, htpasswd, and TLS certs provisioned first) -- see that
+# script and README's deploy section.
+name: sparkpb-deploy
+
+services:
+  app:
+    build:
+      # `context` resolves relative to THIS compose file's directory
+      # (deploy/), not the repo root -- `.` pointed the build at deploy/
+      # and 404'd looking for deploy/Dockerfile.app (verified live: `docker
+      # compose ... build app` failed with "open Dockerfile.app: no such
+      # file or directory"). Dockerfile.app lives at the repo root, one
+      # level up.
+      context: ..
+      dockerfile: Dockerfile.app
+    # DooD path alignment (D1, the load-bearing detail): mounting the repo at
+    # the SAME absolute path inside this container as on the host makes the
+    # spawned cluster's relative bind mounts (../../:/workspace, resolved by
+    # the host daemon) land on the real repo instead of an empty directory.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${REPO_HOST_PATH}:${REPO_HOST_PATH}
+    working_dir: ${REPO_HOST_PATH}
+    # network_mode: host (devops review correction -- the ADR text names
+    # `extra_hosts: host.docker.internal:host-gateway` + CLUSTER_HOST=
+    # host.docker.internal, but that does NOT work on plain Linux Docker:
+    # the spawned cluster's ports are published `127.0.0.1:PORT:PORT`
+    # (D2, loopback-only), and Docker scopes that publish with an iptables
+    # DNAT rule matched on destination 127.0.0.1 specifically -- a packet
+    # the app container sends to the bridge-gateway IP that host.docker.
+    # internal resolves to (e.g. 172.17.0.1) has a different destination
+    # and never matches, so the "reachable from a container via
+    # host-gateway" reasoning fails for loopback-scoped publishes. nginx
+    # already sidesteps this exact problem with network_mode: host (D4);
+    # giving the app service the same mode makes ITS 127.0.0.1 the real
+    # host loopback too, so CLUSTER_HOST's plain "localhost" default
+    # (app/config.py) reaches the cluster directly -- no host.docker.
+    # internal / extra_hosts needed at all. Escalated to the architect for
+    # an ADR addendum; this is a correction to make D1/D3 actually work on
+    # a real Linux VM, not a new design decision.
+    network_mode: host
+    environment:
+      # No CLUSTER_HOST override: app/config.py's default ("localhost")
+      # is already correct under network_mode: host (see note above).
+      # Browser-facing URLs become nginx proxy subpaths behind the deploy
+      # (D3) -- dev's literal localhost:8888/:8080 defaults don't apply here.
+      JUPYTER_URL: /jupyter
+      MASTER_UI_URL: /spark-master
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN}
+    # Host network mode means uvicorn binds directly on the host's
+    # interfaces -- pin it to 127.0.0.1 explicitly (redundant with
+    # Dockerfile.app's own 127.0.0.1 default CMD, security audit LOW-1) to
+    # preserve the original loopback-only publish intent (D1: "Publishes
+    # 127.0.0.1:8000:8000 only") as belt-and-suspenders defense-in-depth
+    # alongside the firewall/security-group 22/80/443 restriction.
+    command: ["uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"]
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    # network_mode: host (D4): lets nginx reach both the loopback-bound app
+    # and the loopback-bound spawned cluster uniformly on 127.0.0.1, matching
+    # where everything already binds -- a bridge network would need every
+    # loopback upstream re-exposed to it instead.
+    network_mode: host
+    volumes:
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./secrets/htpasswd:/etc/nginx/htpasswd:ro
+      - ./certs/letsencrypt:/etc/letsencrypt
+      - ./certs/webroot:/var/www/certbot
+    environment:
+      DOMAIN: ${DOMAIN}
+    # Reload loop (OQ3) picks up certs renewed by the certbot sidecar without
+    # a restart; the official nginx image's entrypoint still runs first and
+    # renders default.conf.template via envsubst before exec'ing this command.
+    command: >-
+      sh -c 'while :; do sleep 6h & wait $!; nginx -s reload; done & nginx -g "daemon off;"'
+    depends_on:
+      - app
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - ./certs/letsencrypt:/etc/letsencrypt
+      - ./certs/webroot:/var/www/certbot
+    # Renewal-only sidecar (OQ3) -- initial issuance happens as a one-shot
+    # `docker run` from deploy.sh, before this stack is up. `certbot renew`
+    # is a no-op until ~30 days before expiry, so the 12h loop is cheap.
+    entrypoint: >-
+      sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $!; done'
+    restart: unless-stopped

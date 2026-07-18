@@ -82,7 +82,7 @@ def _probe_ports(timeout_s: float) -> List[Tuple[str, List[dict]]]:
     applied across the whole candidate range instead of one fixed URL."""
     results: List[Tuple[str, List[dict]]] = []
     for port in config.DRIVER_APP_UI_PORTS:
-        base_url = f"http://localhost:{port}"
+        base_url = f"http://{config.CLUSTER_HOST}:{port}"
         apps = _get_json(f"{base_url}/api/v1/applications", timeout_s)
         if isinstance(apps, list):
             results.append((base_url, apps))
