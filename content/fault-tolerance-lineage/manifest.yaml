@@ -1,0 +1,42 @@
+# Spark Playbook — topic manifest (PLAN.md §3 schema).
+#
+# US-C9 (issue #49, Sprint 9): this topic's self-check hypothesis is "does
+# Spark restart the whole job after a worker dies, or only recompute the
+# lost partitions?" That's a REST task-status fact (FAILED/resubmitted task
+# attempts tied to a lost executor), not a plan-node concept at all -- per
+# the architect's settled disposition (Decision A,
+# docs/architecture/topic-shell-redesign.md; docs/requirements/
+# curriculum-topics-2026-07.md's Open Question 1), this does NOT extend the
+# plan-node matcher (`app/annotation/plan_parser.py`,
+# `engine.annotate_plan()` stay untouched). It uses the new, parallel
+# `task_retry_evidence:` manifest flag instead -- a reveal-time,
+# every-stage `fetch_task_list()` pull in
+# `app/web/routes/annotation.py::_task_retry_evidence()`, grouped by
+# `app/monitoring/collector.py::retries_by_index()` (the exact same
+# "max attempt per task index" logic `DashboardCollector._build_partitions()`
+# already used post-hoc for the monitoring dashboard, extracted into a
+# shared helper rather than duplicated). No `plan_nodes` section: nothing
+# about this topic's self-check is a plan-shape question, so there is
+# nothing to label there.
+#
+# Every stage is checked (same iterate-every-stage shape as
+# `task_duration_quantiles`/`stage_metrics`, unlike `executor_metrics`' single
+# per-app pull) because at Reveal time it isn't known in advance which stage
+# the killed worker's tasks landed in.
+
+id: fault-tolerance-lineage
+title: "Fault Tolerance & Lineage"
+order: 13
+content: concept.md
+notebook: notebook.ipynb
+
+cluster_defaults:
+  worker_count: 3
+  worker_cores: 2
+  worker_memory_gb: 4
+  shuffle_partitions: 200
+  aqe_enabled: false
+requires_kafka: false
+
+annotation:
+  task_retry_evidence: true

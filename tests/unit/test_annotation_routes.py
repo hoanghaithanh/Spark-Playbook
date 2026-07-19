@@ -411,6 +411,214 @@ class TestRevealExecutorMetrics:
         assert "Stale checkpoint" in resp.text  # also flagged by the existing staleness check
 
 
+class TestTaskRetryEvidence:
+    """US-C9 (issue #49, Decision A): task_retry_evidence is a reveal-time,
+    every-stage `fetch_task_list()` pull gated by the topic manifest,
+    covering two distinct REST-observable retry shapes -- see
+    `_task_retry_evidence()`'s own docstring in
+    app/web/routes/annotation.py. Mirrors TestRevealExecutorMetrics'
+    structure above (own manifest fixtures, mocked app_client)."""
+
+    def _write_retry_topic(self, content_dir, topic_id="retry-topic"):
+        topic_dir = content_dir / topic_id
+        topic_dir.mkdir(parents=True)
+        manifest = {
+            "id": topic_id,
+            "title": "Retry Topic",
+            "content": "concept.md",
+            "notebook": "notebook.ipynb",
+            "annotation": {"task_retry_evidence": True},
+        }
+        (topic_dir / "manifest.yaml").write_text(yaml.dump(manifest), encoding="utf-8")
+        (topic_dir / "concept.md").write_text("# ok", encoding="utf-8")
+        (topic_dir / "notebook.ipynb").write_text("{}", encoding="utf-8")
+        return topic_dir
+
+    def _resolve(self, monkeypatch, app_id):
+        monkeypatch.setattr(
+            annotation_module.app_client, "fetch_all_app_ids", lambda timeout_s=3.0: [app_id]
+        )
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "resolve_app",
+            lambda aid, timeout_s=3.0: AppRef(app_id=aid, base_url="http://localhost:4040"),
+        )
+
+    def test_topic_without_opt_in_skips_task_list_call(self, tmp_path, monkeypatch):
+        """join-strategies' manifest has no task_retry_evidence section."""
+        annotations_dir = tmp_path / "annotations"
+        _write_checkpoint(annotations_dir, "join-strategies", app_id="app-retry-0000")
+        self._resolve(monkeypatch, "app-retry-0000")
+        stages = [{"stageId": 1, "attemptId": 0, "status": "COMPLETE", "numTasks": 4}]
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: stages)
+        calls = []
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "fetch_task_list",
+            lambda app, stage_id, attempt_id=0, length=1000, timeout_s=3.0: calls.append(stage_id) or [],
+        )
+
+        with patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
+            resp = client.get("/topics/join-strategies/annotation/stages")
+
+        assert resp.status_code == 200
+        assert calls == []
+        assert "tasks retried" not in resp.text
+
+    def test_same_attempt_retry_shape(self, tmp_path, monkeypatch):
+        """Shape 1: a task rescheduled within the same stage attempt shows a
+        second task-list record for the same `index` with `attempt >= 1`."""
+        content_dir = tmp_path / "content"
+        self._write_retry_topic(content_dir)
+        annotations_dir = tmp_path / "annotations"
+        _write_checkpoint(annotations_dir, "retry-topic", app_id="app-retry-0001")
+        self._resolve(monkeypatch, "app-retry-0001")
+
+        stages = [{"stageId": 5, "attemptId": 0, "status": "COMPLETE", "numTasks": 4}]
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: stages)
+
+        tasks = [
+            {"index": 0, "attempt": 0, "status": "FAILED"},
+            {"index": 0, "attempt": 1, "status": "SUCCESS"},  # retried
+            {"index": 1, "attempt": 0, "status": "SUCCESS"},
+            {"index": 2, "attempt": 0, "status": "SUCCESS"},
+            {"index": 3, "attempt": 0, "status": "SUCCESS"},
+        ]
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "fetch_task_list",
+            lambda app, stage_id, attempt_id=0, length=1000, timeout_s=3.0: tasks,
+        )
+
+        with patch.object(config, "CONTENT_DIR", content_dir), patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
+            resp = client.get("/topics/retry-topic/annotation/stages")
+
+        assert resp.status_code == 200
+        assert "1 of 4 retried" in resp.text
+        assert "3 kept results" in resp.text
+
+    def test_stage_resubmission_shape(self, tmp_path, monkeypatch):
+        """Shape 2: the same stageId appears twice in /stages -- attempt 0
+        (original, FAILED after a FetchFailedException) and attempt 1 (the
+        resubmission, whose numTasks is only the recomputed partitions).
+        Per the docstring, this shape is read directly off the stage list's
+        numTasks -- no fetch_task_list() call needed for the resubmitted row.
+        Attempt 0's own row is superseded (it triggered the resubmission), so
+        it reports no evidence at all and never calls fetch_task_list()
+        either -- fixed after code review flagged the original fallback
+        behavior as backwards (reporting "0 retried" on the exact row that
+        caused the retries)."""
+        content_dir = tmp_path / "content"
+        self._write_retry_topic(content_dir)
+        annotations_dir = tmp_path / "annotations"
+        _write_checkpoint(annotations_dir, "retry-topic", app_id="app-retry-0002")
+        self._resolve(monkeypatch, "app-retry-0002")
+
+        stages = [
+            {"stageId": 7, "attemptId": 0, "status": "FAILED", "numTasks": 50},
+            {"stageId": 7, "attemptId": 1, "status": "COMPLETE", "numTasks": 2},
+        ]
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: stages)
+
+        attempt0_tasks = [{"index": i, "attempt": 0, "status": "FAILED"} for i in range(50)]
+        calls = []
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "fetch_task_list",
+            lambda app, stage_id, attempt_id=0, length=1000, timeout_s=3.0: calls.append(attempt_id) or attempt0_tasks,
+        )
+
+        with patch.object(config, "CONTENT_DIR", content_dir), patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
+            resp = client.get("/topics/retry-topic/annotation/stages")
+
+        assert resp.status_code == 200
+        # Resubmitted attempt's row: 2 of the original 50 retried, 48 kept --
+        # computed straight from numTasks, no task-list fetch for attempt 1.
+        assert "2 of 50 retried" in resp.text
+        assert "48 kept results" in resp.text
+        # Attempt 0 is superseded + FAILED -- suppressed entirely, so
+        # fetch_task_list() is never called for either row.
+        assert calls == []
+
+    def test_repeated_stage_resubmission_each_row_independent_against_original_total(self, tmp_path, monkeypatch):
+        """Known-risk edge case flagged for review: Spark can resubmit a
+        stage more than once. The current implementation computes each
+        resubmitted attempt's row independently against the original
+        attempt-0 total (max(original_num_tasks, this attempt's numTasks)),
+        not cumulatively across resubmissions -- pinning that as the actual,
+        intentional-if-imperfect behavior rather than leaving it unverified."""
+        content_dir = tmp_path / "content"
+        self._write_retry_topic(content_dir)
+        annotations_dir = tmp_path / "annotations"
+        _write_checkpoint(annotations_dir, "retry-topic", app_id="app-retry-0003")
+        self._resolve(monkeypatch, "app-retry-0003")
+
+        stages = [
+            {"stageId": 9, "attemptId": 0, "status": "FAILED", "numTasks": 50},
+            {"stageId": 9, "attemptId": 1, "status": "FAILED", "numTasks": 2},
+            {"stageId": 9, "attemptId": 2, "status": "COMPLETE", "numTasks": 1},
+        ]
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: stages)
+        attempt0_tasks = [{"index": i, "attempt": 0, "status": "FAILED"} for i in range(50)]
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "fetch_task_list",
+            lambda app, stage_id, attempt_id=0, length=1000, timeout_s=3.0: attempt0_tasks,
+        )
+
+        with patch.object(config, "CONTENT_DIR", content_dir), patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
+            resp = client.get("/topics/retry-topic/annotation/stages")
+
+        assert resp.status_code == 200
+        # Each resubmitted row is independently "N of the *original* 50",
+        # not cumulative across the two resubmissions.
+        assert "2 of 50 retried" in resp.text
+        assert "48 kept results" in resp.text
+        assert "1 of 50 retried" in resp.text
+        assert "49 kept results" in resp.text
+
+    def test_superseded_failed_attempt_suppresses_misleading_zero_retry(self, tmp_path, monkeypatch):
+        """Fix for the bug both reviewers flagged: the original (attempt 0)
+        row of a stage that went on to be resubmitted used to fall through to
+        the same-attempt fallback and report "0 of N retried" -- backwards,
+        since that attempt is exactly what triggered the resubmission. It
+        must now report no evidence at all (renders as "-"), while the
+        resubmitted attempt's own row still correctly reports the real
+        count."""
+        content_dir = tmp_path / "content"
+        self._write_retry_topic(content_dir)
+        annotations_dir = tmp_path / "annotations"
+        _write_checkpoint(annotations_dir, "retry-topic", app_id="app-retry-0004")
+        self._resolve(monkeypatch, "app-retry-0004")
+
+        stages = [
+            {"stageId": 11, "attemptId": 0, "status": "FAILED", "numTasks": 10},
+            {"stageId": 11, "attemptId": 1, "status": "COMPLETE", "numTasks": 3},
+        ]
+        monkeypatch.setattr(annotation_module.app_client, "fetch_stages", lambda app, timeout_s=3.0: stages)
+        # None of attempt 0's own tasks show a same-attempt retry bump -- the
+        # stage attempt was simply abandoned mid-flight when the worker
+        # holding shuffle data died, not individually retried task-by-task.
+        # fetch_task_list must not even be consulted for the superseded
+        # attempt 0 row now that it's suppressed before any REST call.
+        attempt0_tasks = [{"index": i, "attempt": 0, "status": "FAILED"} for i in range(10)]
+        monkeypatch.setattr(
+            annotation_module.app_client,
+            "fetch_task_list",
+            lambda app, stage_id, attempt_id=0, length=1000, timeout_s=3.0: attempt0_tasks,
+        )
+
+        with patch.object(config, "CONTENT_DIR", content_dir), patch.object(config, "ANNOTATIONS_DIR", annotations_dir):
+            resp = client.get("/topics/retry-topic/annotation/stages")
+
+        assert resp.status_code == 200
+        # Attempt 0's own row no longer claims "0 of 10 retried" -- it has no
+        # task_retry evidence at all now that it's known to be superseded.
+        assert "0 of 10 retried" not in resp.text
+        # Attempt 1's row still correctly reports the resubmission shape.
+        assert "3 of 10 retried" in resp.text
+
+
 class TestStageMetricsFragment:
     def test_invalid_manifest_shows_clear_message_not_500(self, tmp_path, monkeypatch):
         content_dir = tmp_path / "content"

@@ -164,6 +164,26 @@ def _select_current_stage(stages_raw: List[dict]) -> Optional[dict]:
     return None
 
 
+def retries_by_index(tasks_raw: List[dict]) -> Dict[int, int]:
+    """Max `attempt` seen per task `index` across a stage's raw task-list
+    records -- retries appear as separate records sharing the same `index`,
+    so this is exactly "how many times was this partition retried" (0 = never
+    retried). Shared by `DashboardCollector._build_partitions()` (post-hoc
+    dashboard partition rows) and `app/web/routes/annotation.py`'s
+    reveal-time task-retry evidence for Fault Tolerance & Lineage (US-C9,
+    Decision A) -- same grouping logic, two call sites, extracted here rather
+    than duplicated."""
+    result: Dict[int, int] = {}
+    for t in tasks_raw:
+        if not isinstance(t, dict):
+            continue
+        idx = t.get("index")
+        if idx is None:
+            continue
+        result[idx] = max(result.get(idx, 0), t.get("attempt", 0))
+    return result
+
+
 def _executor_host_map(executors_raw: Optional[List[dict]], ip_to_name: Dict[str, str]) -> Dict[str, str]:
     """executorId -> container hostname (ADR D-D join key: service name ==
     hostname == executor host).
@@ -457,14 +477,7 @@ class DashboardCollector:
             existing = latest_by_index.get(idx)
             if existing is None or t.get("attempt", 0) >= existing.get("attempt", 0):
                 latest_by_index[idx] = t
-        retries_by_index: Dict[int, int] = {}
-        for t in tasks_raw:
-            if not isinstance(t, dict):
-                continue
-            idx = t.get("index")
-            if idx is None:
-                continue
-            retries_by_index[idx] = max(retries_by_index.get(idx, 0), t.get("attempt", 0))
+        retries_map = retries_by_index(tasks_raw)
 
         task_samples: List[diagnostics.TaskSample] = []
         raw_by_id: Dict[str, dict] = {}
@@ -494,7 +507,7 @@ class DashboardCollector:
                     task_id=task_id,
                     size_bytes=size_bytes,
                     duration_s=duration_s,
-                    retries=retries_by_index.get(idx, 0),
+                    retries=retries_map.get(idx, 0),
                 )
             )
             raw_by_id[task_id] = {
@@ -504,7 +517,7 @@ class DashboardCollector:
                 "shuffle_write": shuffle_write_bytes,
                 "size_bytes": size_bytes,
                 "duration_s": duration_s,
-                "retries": retries_by_index.get(idx, 0),
+                "retries": retries_map.get(idx, 0),
                 "status": t.get("status"),
                 "launch_time": t.get("launchTime"),
             }

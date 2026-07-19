@@ -6,11 +6,73 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from app.monitoring.collector import DashboardCollector
+from app.monitoring.collector import DashboardCollector, retries_by_index
 
 
 def _iso_gmt(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%S.000") + "GMT"
+
+
+class TestRetriesByIndex:
+    """US-C9 (issue #49): `retries_by_index()` was extracted out of
+    `DashboardCollector._build_partitions()`'s inline loop into a
+    module-level function, reused by `app/web/routes/annotation.py`'s new
+    task-retry evidence pull -- pins the extraction is behavior-preserving
+    (max `attempt` seen per task `index`, 0 for a never-retried partition)."""
+
+    def test_max_attempt_per_index(self):
+        tasks_raw = [
+            {"index": 0, "attempt": 0},
+            {"index": 0, "attempt": 1},  # retried once
+            {"index": 1, "attempt": 0},  # never retried
+        ]
+        assert retries_by_index(tasks_raw) == {0: 1, 1: 0}
+
+    def test_missing_index_skipped(self):
+        assert retries_by_index([{"attempt": 0}, {"index": None, "attempt": 1}]) == {}
+
+    def test_non_dict_entries_skipped(self):
+        assert retries_by_index(["not-a-task", {"index": 2, "attempt": 0}]) == {2: 0}
+
+    def test_missing_attempt_defaults_to_zero(self):
+        assert retries_by_index([{"index": 0}]) == {0: 0}
+
+    def test_empty_input(self):
+        assert retries_by_index([]) == {}
+
+
+class TestBuildPartitionsRetriesFieldPreserved:
+    """Pins `_build_partitions()`'s own `retries` field (dashboard's
+    straggler/retry coloring) still reflects `retries_by_index()` after the
+    extraction -- the pre-extraction inline loop computed the exact same
+    thing, this is the regression guard for issue #49's refactor."""
+
+    def test_retried_partition_carries_nonzero_retries(self):
+        tasks_raw = [
+            {
+                "index": 0,
+                "attempt": 0,
+                "host": "spark-worker-1",
+                "status": "FAILED",
+                "duration": 1000,
+                "taskMetrics": {},
+            },
+            {
+                "index": 0,
+                "attempt": 1,
+                "host": "spark-worker-2",
+                "status": "SUCCESS",
+                "duration": 2000,
+                "taskMetrics": {},
+            },
+        ]
+
+        _, partition_rows, _ = DashboardCollector()._build_partitions(tasks_raw, ip_to_name={})
+
+        # Only the latest attempt (attempt 1) is kept as the partition row,
+        # but it must carry the retry count from the whole index's history.
+        assert len(partition_rows) == 1
+        assert partition_rows[0].retries_label == "1 retries"
 
 
 class TestRunningTaskTimeLabel:

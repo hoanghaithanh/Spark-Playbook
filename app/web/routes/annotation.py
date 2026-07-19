@@ -31,6 +31,7 @@ from fastapi.templating import Jinja2Templates
 from app import config
 from app.annotation import engine, plan_parser
 from app.annotation.manifest import ManifestError, load_annotation_manifest
+from app.monitoring import collector
 from app.spark_api import app_client
 from app.topics import loader
 
@@ -103,6 +104,89 @@ def _duration_quantiles(app_ref: app_client.AppRef, stage: Dict[str, Any], manif
     return engine.spotlight_task_duration_quantiles(detail, manifest)
 
 
+def _task_retry_evidence(
+    app_ref: app_client.AppRef,
+    stage: Dict[str, Any],
+    manifest,
+    original_num_tasks: Optional[int],
+    superseded: bool = False,
+) -> Optional[Dict[str, Any]]:
+    """Reveal-time evidence for US-C9 (Decision A): "N of M tasks retried"
+    for one stage. Two distinct REST-observable shapes, both found by
+    actually running a real `docker kill` against a live cluster while
+    building this topic (`content/fault-tolerance-lineage/notebook.ipynb`'s
+    own comments record the same finding):
+
+    1. A task that was itself actively running on the killed worker gets
+       rescheduled *within the same stage attempt* -- the REST task-list
+       shows a second record for that partition `index` with `attempt >= 1`.
+       This is the case `collector.retries_by_index()` (the same grouping
+       `DashboardCollector._build_partitions()` already does post-hoc for the
+       monitoring dashboard, reused rather than duplicated) directly covers.
+    2. A worker holding *shuffle data* another stage needs to fetch gets
+       killed, which raises a `FetchFailedException` on the reading stage --
+       Spark recovers by resubmitting that stage as a new `attemptId`
+       (`/stages` then lists the same `stageId` twice: the original attempt
+       FAILED, plus a later attempt whose `numTasks` is only however many
+       partitions actually needed recomputing). This is the *more common*
+       real-world case for a mid-shuffle kill (found empirically -- a worker
+       loss almost always lands during a stage long enough for a human to
+       react to, and those are exactly the shuffle stages this applies to),
+       and it doesn't show up as a same-attempt task `attempt` bump at all,
+       since a resubmitted attempt's own tasks each start fresh at
+       `attempt=0`. `original_num_tasks` (the stage's attempt-0 `numTasks`,
+       precomputed once per stageId by the caller) is what lets a later
+       attempt's row report "this attempt's task count is how many of the
+       original total were recomputed" instead of reporting zero.
+
+    A FAILED attempt that was itself superseded by a later attempt (i.e. it
+    triggered the resubmission) reports no evidence at all here (`None`) --
+    running the same-attempt fallback against a doomed, partially-executed
+    attempt would report "0 retried" on the exact row that caused the
+    retries, which is backwards for a topic whose point is "did this stage
+    get restarted?". The resubmitted attempt's own row (case 2 above) is
+    where the real count lives.
+
+    ponytail: only the *latest* attempt's numTasks is used against
+    original_num_tasks, so repeated resubmission (attempt0 FAILED -> attempt1
+    FAILED -> attempt2 COMPLETE) reports each later attempt independently
+    against the original total rather than cumulatively. Acceptable for this
+    topic's one-kill demonstration; revisit if a multi-kill scenario ever
+    needs an accurate running total.
+
+    Same optional-per-stage-pull shape as `_duration_quantiles()` above
+    (gated by a manifest boolean): at Reveal time it isn't known which stage
+    the killed worker's tasks landed in, so every stage is checked, unlike
+    `_executor_rows()`'s single per-app pull."""
+    if not manifest.task_retry_evidence:
+        return None
+
+    attempt_id = stage.get("attemptId", 0)
+    if attempt_id and original_num_tasks is not None:
+        retried_count = stage.get("numTasks") or 0
+        total_count = max(original_num_tasks, retried_count)
+        return {
+            "total_count": total_count,
+            "retried_count": retried_count,
+            "kept_count": total_count - retried_count,
+        }
+
+    if stage.get("status") == "FAILED" and superseded:
+        return None
+
+    num_tasks = stage.get("numTasks") or 0
+    tasks = app_client.fetch_task_list(app_ref, stage.get("stageId"), attempt_id, length=max(1000, num_tasks))
+    if not isinstance(tasks, list) or not tasks:
+        return None
+    retries = collector.retries_by_index(tasks)
+    retried_count = sum(1 for attempt in retries.values() if attempt > 0)
+    return {
+        "total_count": len(retries),
+        "retried_count": retried_count,
+        "kept_count": len(retries) - retried_count,
+    }
+
+
 def _executor_rows(app_ref: Optional[app_client.AppRef], manifest) -> Optional[List[Dict[str, Any]]]:
     """Reveal-time evidence for US-C10/US-C3 (Decision A): per-executor
     `executor_metrics` spotlighting from `/api/v1/applications/<id>/executors`,
@@ -131,10 +215,31 @@ def _stage_rows(app_ref: Optional[app_client.AppRef], manifest) -> Optional[List
     # same way rather than raising on the latter.
     if not isinstance(stages, list):
         return None
+    # US-C9: attempt-0's own numTasks per stageId, needed by
+    # _task_retry_evidence() to report "N of the original total" for a later
+    # (resubmitted) attempt of the same stage -- see that function's
+    # docstring for why a resubmitted attempt's own numTasks alone isn't
+    # enough context on its own.
+    original_num_tasks_by_stage_id = {
+        s.get("stageId"): s.get("numTasks")
+        for s in stages
+        if isinstance(s, dict) and s.get("attemptId", 0) == 0
+    }
+    # US-C9 fix: an attempt is "superseded" if a later attempt of the same
+    # stageId exists -- that's what lets _task_retry_evidence() suppress the
+    # misleading "0 retried" same-attempt fallback on the FAILED attempt that
+    # actually triggered the resubmission (see that function's docstring).
+    max_attempt_by_stage_id: Dict[Any, int] = {}
+    for s in stages:
+        if not isinstance(s, dict):
+            continue
+        sid = s.get("stageId")
+        max_attempt_by_stage_id[sid] = max(max_attempt_by_stage_id.get(sid, 0), s.get("attemptId", 0))
     rows = []
     for stage in stages:
         if not isinstance(stage, dict):
             continue
+        superseded = stage.get("attemptId", 0) < max_attempt_by_stage_id.get(stage.get("stageId"), 0)
         rows.append(
             {
                 "stageId": stage.get("stageId"),
@@ -142,6 +247,13 @@ def _stage_rows(app_ref: Optional[app_client.AppRef], manifest) -> Optional[List
                 "status": stage.get("status"),
                 "metrics": engine.spotlight_stage_metrics(stage, manifest),
                 "duration_quantiles": _duration_quantiles(app_ref, stage, manifest),
+                "task_retry": _task_retry_evidence(
+                    app_ref,
+                    stage,
+                    manifest,
+                    original_num_tasks_by_stage_id.get(stage.get("stageId")),
+                    superseded,
+                ),
                 "ui_url": app_client.stage_ui_url(app_ref, stage.get("stageId"), stage.get("attemptId", 0)),
             }
         )
@@ -154,6 +266,7 @@ async def _stages_context(request: Request, topic, checkpoint_data: Optional[Dic
         "topic": topic,
         "poll_interval_s": config.STAGE_POLL_INTERVAL_S,
         "quantiles_enabled": False,
+        "retry_evidence_enabled": False,
     }
     try:
         manifest = load_annotation_manifest(topic.id)
@@ -198,6 +311,7 @@ async def _stages_context(request: Request, topic, checkpoint_data: Optional[Dic
         "app_id": app_id,
         "app_ref": app_ref,
         "quantiles_enabled": manifest.task_duration_quantiles,
+        "retry_evidence_enabled": manifest.task_retry_evidence,
         # Issue #8 follow-up: fetch_stage_task_summary() (called inside
         # _stage_rows()) is a second blocking REST call per stage, on top of
         # the pre-existing fetch_stages() call -- same event-loop-freezing

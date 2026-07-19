@@ -31,6 +31,11 @@
         <th>task duration p75</th>
         <th>task duration max</th>
         {% endif %}
+        {% if retry_evidence_enabled %}
+        <!-- US-C9: "N of M tasks retried" -- reveal-time REST evidence for
+             the Fault Tolerance & Lineage self-check (Decision A). -->
+        <th>tasks retried</th>
+        {% endif %}
         <th></th>
       </tr>
     </thead>
@@ -50,6 +55,11 @@
         <td>{{ s.duration_quantiles.max }}</td>
         {% elif quantiles_enabled %}
         <td colspan="5">—</td>
+        {% endif %}
+        {% if s.task_retry %}
+        <td>{{ s.task_retry.retried_count }} of {{ s.task_retry.total_count }} retried ({{ s.task_retry.kept_count }} kept results)</td>
+        {% elif retry_evidence_enabled %}
+        <td>—</td>
         {% endif %}
         <td><a href="{{ s.ui_url }}" target="_blank" rel="noopener">Open stage in Spark UI</a></td>
       </tr>

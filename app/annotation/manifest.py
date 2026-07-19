@@ -73,6 +73,14 @@ class AnnotationManifest:
     # duration), so a per-key list would be a parallel mechanism with
     # nothing else to key on.
     task_duration_quantiles: bool = False
+    # US-C9 (Decision A, docs/architecture/topic-shell-redesign.md): gates a
+    # reveal-time per-stage `fetch_task_list()` pull, same optional-boolean
+    # shape as task_duration_quantiles above (there's exactly one task-retry
+    # signal to opt into, not a list of keys). Every stage is checked (like
+    # stage_metrics, unlike executor_metrics' single per-app pull) because at
+    # Reveal time it isn't known in advance which stage the killed worker's
+    # tasks landed in.
+    task_retry_evidence: bool = False
 
 
 def _parse_plan_node(raw: Any, topic_id: str, index: int) -> PlanNodeRule:
@@ -161,6 +169,7 @@ def load_annotation_manifest(topic_id: str) -> AnnotationManifest:
     ]
 
     task_duration_quantiles = bool(raw.get("task_duration_quantiles", False))
+    task_retry_evidence = bool(raw.get("task_retry_evidence", False))
 
     return AnnotationManifest(
         topic_id=topic_id,
@@ -168,4 +177,5 @@ def load_annotation_manifest(topic_id: str) -> AnnotationManifest:
         stage_metrics=stage_metrics,
         executor_metrics=executor_metrics,
         task_duration_quantiles=task_duration_quantiles,
+        task_retry_evidence=task_retry_evidence,
     )

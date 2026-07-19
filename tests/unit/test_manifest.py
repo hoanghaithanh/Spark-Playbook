@@ -260,6 +260,25 @@ class TestLoadRealSkewSaltingManifest:
         assert manifest.task_duration_quantiles is True
 
 
+class TestLoadRealFaultToleranceLineageManifest:
+    """US-C9 (issue #49): task-retry evidence is REST task-status data, not
+    a plan-node fact (Decision A) -- this topic declares no `plan_nodes` at
+    all, same disposition as skew-salting's own manifest test above, plus
+    the new `task_retry_evidence` opt-in."""
+
+    def test_task_retry_evidence_opted_in(self):
+        manifest = load_annotation_manifest("fault-tolerance-lineage")
+        assert manifest.task_retry_evidence is True
+
+    def test_no_plan_nodes(self):
+        manifest = load_annotation_manifest("fault-tolerance-lineage")
+        assert manifest.plan_nodes == []
+
+    def test_no_task_duration_quantiles_opt_in(self):
+        manifest = load_annotation_manifest("fault-tolerance-lineage")
+        assert manifest.task_duration_quantiles is False
+
+
 class TestValidManifest:
     def test_full_rule_set(self, tmp_path):
         annotation = {
@@ -313,6 +332,13 @@ class TestValidManifest:
         with patch.object(config, "CONTENT_DIR", tmp_path):
             manifest = load_annotation_manifest("quantile-topic")
         assert manifest.task_duration_quantiles is True
+
+    def test_task_retry_evidence_parsed_true(self, tmp_path):
+        annotation = {"task_retry_evidence": True}
+        _write_topic(tmp_path, "retry-topic", annotation)
+        with patch.object(config, "CONTENT_DIR", tmp_path):
+            manifest = load_annotation_manifest("retry-topic")
+        assert manifest.task_retry_evidence is True
 
 
 class TestInvalidManifest:
