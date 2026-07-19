@@ -272,3 +272,12 @@ Not closing the Sprint 10 milestone or running its retro in this update — spri
 own ceremony (retro needs the human's own what-went-well/what-didn't input, which hasn't been
 gathered yet) and belongs at the next project-manager sprint-planning checkpoint, same pattern as
 every prior sprint's status-check → close-out split. Flagging as ready for that checkpoint.
+
+## Sprint 10 close-out complete (2026-07-19)
+
+Sprint 10's close-out ceremony ran: retro recorded in `docs/retrospectives.md` (Sprint 10 section,
+covering #50 plus the architect-first routing, the ADR resume-and-amend round, the R-K6
+multi-stage-catch, and the deliberate US-3.2/3.3 in-scope-vs-deferred acceptance scoping), and
+milestone #12 closed via `gh api` PATCH-to-closed (0 open / 1 closed, no open issues to flag).
+Backlog row #19 (Phase 3 Kafka infra) status above is unchanged as already-accurate; nothing further
+to update here. Sprint 11 is not proposed in this pass — that's a separate sprint-planning step.

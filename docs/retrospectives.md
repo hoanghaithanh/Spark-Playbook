@@ -336,3 +336,71 @@ to land in the same window. Noted here for completeness, not counted as sprint o
   live repro of the FAILED-on-superseded-attempt branch rather than relying on the mocked test alone.
 - Sprint 10 has not yet been proposed as its own milestone; that's a separate sprint-planning step
   for the human to kick off, not bundled into this close-out.
+
+## Sprint 10 (2026-07-23 – 2026-07-27), closed 2026-07-19
+
+**Scope:** One issue — Phase 3 Kafka infra (issue #50, backlog row #19, L), solo (same pattern as
+Checkpointing/Fault-Tolerance-&-Lineage in Sprints 8-9: an L-sized story with its own distinct
+infrastructure consideration, no natural pairing candidate in the backlog). Unlike the recent
+curriculum-content sprints (5, 6, 8, 9), this one added a new compose-lifecycle service rather than
+content against an already-settled engine, so it was routed through an **architect design pass
+before developer implementation** — the first infra-flavored sprint since the public-deploy work in
+Sprint 7.
+
+**Outcome:** #50 shipped and closed 2026-07-19, delivered across the chain
+`8afc625`/`9188254`/`af8fb9e`/`db3ef55`: conditional Kafka (KRaft) service added to the compose
+template, plus a synthetic producer (`produce.py` CLI, `driver/playbook/producer.py` wrapper),
+designed via architect ADR `docs/architecture/kafka-streaming-infra.md`. Live acceptance
+(`docs/qa/kafka-streaming-infra-acceptance.md`): US-3.1 both given/thens PASS live against a real
+3-worker cluster plus a real KRaft broker; US-3.2's first given/then PASS live (producer
+rate/message-count/host-shell-access independently verified); US-3.2's second given/then and all of
+US-3.3 correctly marked N/A, deferred to #18 — test-engineer scoped these deliberately as belonging
+to the future Structured Streaming query+notebook story rather than fabricating a pass or falsely
+failing criteria this infra story was never meant to satisfy. Test-engineer added 43 new unit tests
+(350→393 passed, 2 skipped, no regressions). Code-reviewer found no Blockers (2 Minor findings, both
+fixed). No security-auditor pass — not triggered (no auth/secrets/PII/payments; the one new
+host-published port is loopback-only, unauthenticated by design, consistent with existing
+local-only ports). Human gave final sign-off 2026-07-19. Milestone #12 closed 2026-07-19 with 0
+open / 1 closed.
+
+**What went well:**
+- The architect-first routing (a deliberate departure from the straight-to-developer pattern used
+  for Sprints 5/6/8/9's curriculum-topic stories) paid off: the ADR's two open questions — host-shell
+  producer access and whether to define the event schema now or defer it — were explicitly flagged
+  rather than guessed, and both got a real human decision that changed the design (a dual-listener
+  KRaft config for host-shell access; the event schema deferred to #18).
+- Live-verification discipline held at the architecture-to-implementation handoff, not just at
+  acceptance time: the developer found and documented three real deviations from the ADR's own
+  literal YAML draft by actually booting a broker (listener bind syntax, localhost-vs-127.0.0.1
+  resolution, a KRaft admin-client limitation) rather than trusting the design doc's sketch as final.
+- The multi-stage pipeline caught what a single pass didn't: test-engineer's own review found a
+  second, related but distinct instance of the same bug class (the advertised-listener side of the
+  localhost/127.0.0.1 issue, R-K6) that the developer's live verification had missed — a concrete
+  case for keeping the reviewer/test-engineer stages even when the implementer already tested live.
+- test-engineer's final acceptance pass correctly scoped which US-3.1/3.2/3.3 given/thens were
+  actually #50's to test versus which structurally belong to the future #18 (Structured Streaming),
+  rather than fabricating a pass or falsely failing out-of-scope criteria — the same landing-story
+  pattern seen earlier at backlog row #4/#31 (Catalyst plans unblocking future scope), worth naming
+  as a repeatable shape for future infra-precursor stories.
+
+**What didn't go well:**
+- The ADR needed a resume-and-amend round: the architect had to be resumed mid-task to amend the
+  document after the human's answers to the two flagged open questions, rather than getting both
+  right in one pass. Not a failure — flagging an open question instead of guessing is exactly the
+  right call — but worth naming as an expected pattern going forward: when a flagged open question
+  resolves to a real design change (not just a clarification), budget for at least one amend round
+  rather than treating the first ADR draft as final.
+- Same recurring gap as Sprints 4/5/9's retros: this entry is written from the pipeline's own
+  reported facts (commits, ADR amendment, review/test outcomes, acceptance evidence) rather than a
+  separate human "what went well / what didn't" conversation this round.
+
+**Try next sprint:**
+- For any future infra-precursor story (a landing story whose acceptance criteria partially belong
+  to a not-yet-built follow-on), have test-engineer explicitly scope which given/thens are in-story
+  versus deferred, as done here for US-3.2/3.3 — don't let "some criteria don't apply yet" turn into
+  either a false pass or a false fail.
+- When an architect ADR flags an open question and the human's answer changes the design (not just
+  clarifies wording), expect a resume-and-amend round as normal cost of doing it right, not a
+  process hiccup to eliminate.
+- Sprint 11 has not yet been proposed as its own milestone; that's a separate sprint-planning step
+  for the human to kick off, not bundled into this close-out.
