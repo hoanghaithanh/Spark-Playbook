@@ -192,12 +192,24 @@ def fetch_stage_task_summary(
     return _get_json(url, timeout_s)
 
 
+def browser_ui_url(app: AppRef) -> str:
+    """Browser-facing base URL for the app's resolved driver UI (public-deploy
+    D3's CLUSTER_HOST/browser-host split, missed for the driver when that
+    split was introduced -- `app.base_url` is CLUSTER_HOST-based, only
+    reachable from the app's own container, not from wherever the browser
+    actually is). Same port `app.base_url` resolved to (issue #24,
+    DRIVER_APP_UI_PORTS), just on `config.DRIVER_UI_HOST` instead."""
+    port = app.base_url.rsplit(":", 1)[-1]
+    return f"http://{config.DRIVER_UI_HOST}:{port}"
+
+
 def stage_ui_url(app: AppRef, stage_id: int, attempt_id: int = 0) -> str:
     """Deep link to the specific stage's page in the real Spark UI (US-2.2 --
-    "not just the application's landing page"), built from `app.base_url`
-    (issue #24) so a `:4041`/`:4042` application's deep links actually
-    resolve instead of always pointing at `:4040`."""
-    return f"{app.base_url}/stages/stage/?id={stage_id}&attempt={attempt_id}"
+    "not just the application's landing page"), built from `browser_ui_url()`
+    (not `app.base_url` directly) since this URL is followed by the user's
+    browser, not fetched by the app itself -- same resolved port (issue #24)
+    so a `:4041`/`:4042` application's deep links actually resolve."""
+    return f"{browser_ui_url(app)}/stages/stage/?id={stage_id}&attempt={attempt_id}"
 
 
 def fetch_executors(app: AppRef, timeout_s: float = 3.0) -> Optional[List[Dict[str, Any]]]:

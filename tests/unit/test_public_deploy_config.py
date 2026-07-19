@@ -60,7 +60,7 @@ class TestDevDefaultsPreserved:
 
     def test_defaults_match_original_localhost_urls(self):
         with patch.dict(os.environ, {}, clear=False):
-            for key in ("CLUSTER_HOST", "JUPYTER_URL", "MASTER_UI_URL", "PUBLIC_ORIGIN"):
+            for key in ("CLUSTER_HOST", "JUPYTER_URL", "MASTER_UI_URL", "DRIVER_UI_HOST", "PUBLIC_ORIGIN"):
                 os.environ.pop(key, None)
             cfg = _reload_config()
             try:
@@ -69,6 +69,8 @@ class TestDevDefaultsPreserved:
                 assert cfg.DRIVER_APP_UI_URL == "http://127.0.0.1:4040"
                 assert cfg.JUPYTER_URL == "http://localhost:8888"
                 assert cfg.MASTER_UI_URL == "http://localhost:8080"
+                assert cfg.DRIVER_UI_HOST == "localhost"
+                assert cfg.DRIVER_UI_URL == "http://localhost:4040"
                 assert cfg.PUBLIC_ORIGIN == ""
             finally:
                 _reload_config()  # restore a clean module state for later tests
@@ -78,18 +80,28 @@ class TestDeployOverrides:
     def test_cluster_host_rewrites_server_side_urls_only(self):
         with patch.dict(
             os.environ,
-            {"CLUSTER_HOST": "host.docker.internal", "JUPYTER_URL": "/jupyter", "MASTER_UI_URL": "/spark-master"},
+            {
+                "CLUSTER_HOST": "host.docker.internal",
+                "JUPYTER_URL": "/jupyter",
+                "MASTER_UI_URL": "/spark-master",
+                "DRIVER_UI_HOST": "192.168.0.131",
+            },
         ):
             cfg = _reload_config()
             try:
                 assert cfg.MASTER_JSON_URL == "http://host.docker.internal:8080/json/"
                 assert cfg.DRIVER_APP_UI_URL == "http://host.docker.internal:4040"
-                # Browser-facing URLs are proxy subpaths, not host:port --
-                # they don't inherit CLUSTER_HOST.
+                # Browser-facing URLs don't inherit CLUSTER_HOST -- JUPYTER_URL/
+                # MASTER_UI_URL are proxy subpaths, DRIVER_UI_HOST is a
+                # separately-overridable browser-reachable host (its port
+                # varies per resolved application, so it can't be a fixed
+                # subpath like the other two -- see app/config.py).
                 assert cfg.JUPYTER_URL == "/jupyter"
                 assert cfg.MASTER_UI_URL == "/spark-master"
+                assert cfg.DRIVER_UI_HOST == "192.168.0.131"
+                assert cfg.DRIVER_UI_URL == "http://192.168.0.131:4040"
             finally:
-                for key in ("CLUSTER_HOST", "JUPYTER_URL", "MASTER_UI_URL"):
+                for key in ("CLUSTER_HOST", "JUPYTER_URL", "MASTER_UI_URL", "DRIVER_UI_HOST"):
                     os.environ.pop(key, None)
                 _reload_config()
 

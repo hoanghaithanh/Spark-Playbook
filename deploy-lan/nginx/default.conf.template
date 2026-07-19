@@ -23,18 +23,25 @@ server {
 
     # Spark's reverseProxyUrl (compose/templates/spark-defaults.conf.j2,
     # enabled whenever PUBLIC_ORIGIN/public_origin is set) bakes a
-    # /spark-master prefix into every link Spark's UI generates. Two
-    # different backend behaviors depending on sub-path (confirmed live):
-    #   - /spark-master/static/*  -- Jetty's static handler is NOT
-    #     reverseProxyUrl-aware; it only serves real content at the
-    #     unprefixed /static/* path, so the prefix must be stripped here or
-    #     every CSS/JS asset 404s into an HTML fallback (unstyled UI).
-    #   - everything else (root, /spark-master/proxy/app/... for the
-    #     per-app UI) -- Spark's own reverseProxy servlet IS prefix-aware and
-    #     expects the /spark-master prefix intact; stripping it there 403s.
-    #     Pass those through unchanged.
+    # /spark-master prefix into every link Spark's UI generates, but Spark's
+    # Jetty server only ever registers the static and proxy handlers at their
+    # UNPREFIXED paths (/static/*, /proxy/*) -- reverseProxyUrl only affects
+    # link *generation*, not request *dispatch*. Confirmed live (curl against
+    # a real cluster): a request for the prefixed path Spark itself links to,
+    # e.g. /spark-master/proxy/worker-<id>/, doesn't 404 or 403 -- it silently
+    # falls through to the master's own homepage handler (200 OK, wrong body),
+    # which is why clicking a Worker Id in the Master UI looked like nothing
+    # happened. The unprefixed path (/proxy/worker-<id>/) returns the correct
+    # worker page. Same story for /spark-master/proxy/app-<id>/ (the per-app
+    # UI) and /spark-master/static/* (CSS/JS 404s into an HTML fallback,
+    # unstyled UI) -- both prefixes must be stripped here before forwarding.
     location /spark-master/static/ {
         proxy_pass http://127.0.0.1:8080/static/;
+        proxy_set_header Host $http_host;
+    }
+
+    location /spark-master/proxy/ {
+        proxy_pass http://127.0.0.1:8080/proxy/;
         proxy_set_header Host $http_host;
     }
 

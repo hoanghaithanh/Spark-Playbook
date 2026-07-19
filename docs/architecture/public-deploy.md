@@ -13,6 +13,14 @@ Builds on: `app/config.py`, `app/lifecycle/` (`manager.py`, `compose_ops.py`), `
 > corrected to `network_mode: host`. Superseded passages below are struck through and point here;
 > the full addendum is the [Addendum A1](#addendum-a1-2026-07-17--app-service-uses-network_mode-host-supersedes-the-hostdockerinternalextra_hosts-parts-of-d1--d3)
 > section after the Decision.
+>
+> **Addendum A2 (2026-07-18):** **D3**'s claim that `/spark-master/proxy/*` (worker and per-app UI
+> links) "is prefix-aware" was wrong — confirmed live it silently falls through to the master's own
+> homepage instead of the linked worker/app page — and the driver-UI deep links D3 called
+> "server-side" (`dashboard.py:90`) are in fact rendered into browser `<a href>`s and were pointing
+> at `CLUSTER_HOST`, unreachable from the browser. Both fixed; see
+> [Addendum A2](#addendum-a2-2026-07-18--reverseproxy-prefix-dispatch-and-the-driver-ui-browser-host-were-both-wrong)
+> after Addendum A1.
 
 ---
 
@@ -247,6 +255,53 @@ step to gate it. The mitigation for (b) is the explicit uvicorn `--host 127.0.0.
 combined with the firewall/security-group restricted to 22/80/443 (US-PD5), the intended exposure is
 preserved. (a) is bounded by the same single-trusted-user threat model that already accepts the
 Docker socket mount (OQ5/R-PD7) — the auditor should confirm both.
+
+---
+
+## Addendum A2 (2026-07-18) — reverseProxy prefix dispatch, and the driver-UI browser host, were both wrong
+
+*Source: user bug report ("links point at 127.0.0.1", "worker links in the Master UI don't
+navigate"), root-caused by reproducing live against a real spawned cluster (`curl` against the
+rendered `deploy-lan` nginx config + a real `spark-master`/worker/driver, not just re-reading D3/D4).
+Both are bug fixes to make D3/D4 actually work, not new design decisions.*
+
+**Bug 1 — `/spark-master/proxy/*` is NOT prefix-aware.** D3/D4 assumed (and the `deploy-lan` nginx
+comment asserted, unverified) that only `/spark-master/static/*` needed the prefix stripped before
+forwarding to the master, and that `/spark-master/proxy/*` (worker UI *and* per-app/driver UI, both
+reached through the master's reverse-proxy servlet) could be passed through with the prefix intact.
+**Confirmed false by live `curl` against a real cluster:** `spark.ui.reverseProxyUrl` only affects
+Spark's own **link generation** (the `href`s it renders point at `/spark-master/proxy/worker-<id>/`),
+not **request dispatch** — Spark's Jetty server only ever registers the proxy handler at the
+unprefixed `/proxy/*` path. A request for the prefixed path doesn't 404 or 403; it silently falls
+through to the master's own homepage handler (`200 OK`, master's own body) — indistinguishable, from
+the browser's side, from "the link did nothing". The unprefixed path (`/proxy/worker-<id>/`,
+`/proxy/app-<id>/`) returns the correct content every time. **Fix:** both nginx templates
+(`deploy/nginx/default.conf.template`, `deploy-lan/nginx/default.conf.template`) now strip the
+`/spark-master` prefix for `/spark-master/proxy/` too, the exact same pattern already used for
+`/spark-master/static/` — `proxy_pass http://127.0.0.1:8080/proxy/;` against a `location
+/spark-master/proxy/` block. `deploy/`'s single-block `/spark-master/` location never had the
+static-asset split either (an unstyled Master UI in every public deploy, not just a proxy bug) — both
+gaps are closed by the same three-way split (`static/` / `proxy/` / catch-all) `deploy-lan/` already
+had for static.
+
+**Bug 2 — the driver-UI deep link is browser-facing, not server-side.** D3 stated
+`dashboard.py:90`'s `app_ref.base_url`-derived link "stays server-side" and therefore correctly
+inherits `CLUSTER_HOST`. That's wrong: it (and `app_client.stage_ui_url()`, used identically by the
+Job Detail "Open in Spark UI" deep link and the annotation Reveal flow's stage links) is rendered
+into a real `<a href target="_blank">` the user's browser follows. `CLUSTER_HOST` defaults to
+`127.0.0.1` — reachable from the app's own container, never from the browser once the app runs
+containerized (LAN or public deploy) — hence links to `127.0.0.1:4040/...`. Unlike
+`JUPYTER_URL`/`MASTER_UI_URL`, this couldn't just become a fixed proxy subpath: the driver's actual
+port varies per session across `DRIVER_APP_UI_PORTS` (`docs/architecture/driver-port-discovery.md`).
+**Fix:** new `DRIVER_UI_HOST` env var (`app/config.py`, default `localhost` — same
+override-empty-in-dev contract as `JUPYTER_URL`/`MASTER_UI_URL`) holds only the browser-reachable
+*host*; `app_client.browser_ui_url()` combines it with whichever port `AppRef.base_url` actually
+resolved to. `deploy-lan/docker-compose.yml` sets it to `${LAN_IP}`, matching the ports
+`deploy-lan/nginx/default.conf.template` already forwards 1:1 (`:4040`–`:4042`). `deploy/`'s public
+stack does **not** get an override — it has no nginx location exposing `:4040`–`:4042` past the
+firewall's 22/80/443 restriction (US-PD5), so the driver-UI deep link stays unreachable there;
+exposing it is a separate, not-yet-scoped decision (would mean widening the public port surface),
+left for a human call rather than bundled into this bug fix.
 
 ---
 

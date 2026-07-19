@@ -64,9 +64,28 @@ server {
         proxy_read_timeout 86400;
     }
 
+    # Spark Master UI (D4) -- spark.ui.reverseProxy handles worker UIs, so no
+    # dedicated worker host ports are needed (D2). Split into three locations,
+    # not one: Spark's Jetty server only ever registers its static and proxy
+    # handlers at their UNPREFIXED paths (/static/*, /proxy/*) --
+    # reverseProxyUrl only affects link *generation*, not request *dispatch*.
+    # Confirmed live against a real cluster (see deploy-lan/nginx's identical
+    # split for the full writeup): passing /spark-master/static/* or
+    # /spark-master/proxy/* straight through with the prefix intact either
+    # 404s into an unstyled UI (static assets) or silently falls through to
+    # the master's own homepage instead of the intended worker/app page
+    # (proxy) -- both prefixes must be stripped here before forwarding.
+    location /spark-master/static/ {
+        proxy_pass http://127.0.0.1:8080/static/;
+        proxy_set_header Host $host;
+    }
+
+    location /spark-master/proxy/ {
+        proxy_pass http://127.0.0.1:8080/proxy/;
+        proxy_set_header Host $host;
+    }
+
     location /spark-master/ {
-        # Spark Master UI (D4) -- spark.ui.reverseProxy handles worker UIs,
-        # so no dedicated worker host ports are needed (D2).
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
     }

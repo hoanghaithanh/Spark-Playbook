@@ -87,7 +87,7 @@ async def _driver_ui_url() -> str:
         app_ref = await asyncio.to_thread(app_client.resolve_current_app, timeout_s=2.0)
     except Exception:
         app_ref = None
-    return app_ref.base_url if app_ref else config.DRIVER_APP_UI_URL
+    return app_client.browser_ui_url(app_ref) if app_ref else config.DRIVER_UI_URL
 
 
 @router.get("/dashboard")

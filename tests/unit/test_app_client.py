@@ -326,6 +326,30 @@ class TestStageUiUrl:
         url = app_client.stage_ui_url(app, 3)
         assert url.startswith("http://localhost:4041/")
 
+    def test_uses_the_browser_facing_host_not_the_apps_cluster_host(self):
+        """Bug found live: `app.base_url` is CLUSTER_HOST-based (e.g.
+        127.0.0.1, only reachable from the app's own container), but this
+        URL is followed by the user's browser -- it must swap in
+        DRIVER_UI_HOST (config.py), keeping the resolved port."""
+        import importlib
+        import os
+        from unittest.mock import patch
+
+        import app.config as config_module
+        import app.spark_api.app_client as app_client_module
+
+        with patch.dict(os.environ, {"DRIVER_UI_HOST": "192.168.0.131"}):
+            importlib.reload(config_module)
+            importlib.reload(app_client_module)
+            try:
+                app = app_client_module.AppRef(app_id="app-1", base_url="http://127.0.0.1:4041")
+                url = app_client_module.stage_ui_url(app, 3)
+                assert url == "http://192.168.0.131:4041/stages/stage/?id=3&attempt=0"
+            finally:
+                os.environ.pop("DRIVER_UI_HOST", None)
+                importlib.reload(config_module)
+                importlib.reload(app_client_module)
+
 
 def test_driver_app_ui_ports_matches_the_compose_port_mapping():
     """The candidate-port list this module probes must match the range the

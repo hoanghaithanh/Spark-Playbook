@@ -47,6 +47,11 @@ services:
       # confirmed live that the bare host:port 404s without it.
       JUPYTER_URL: http://${LAN_IP}:8888/jupyter
       MASTER_UI_URL: http://${LAN_IP}:8080
+      # Browser-facing host for driver Spark UI deep links (app/config.py
+      # DRIVER_UI_HOST) -- app_client.browser_ui_url() combines this with
+      # whichever port the resolved application actually landed on
+      # (4040/4041/4042, all forwarded onto LAN_IP by ./nginx below).
+      DRIVER_UI_HOST: ${LAN_IP}
     # 0.0.0.0, NOT 127.0.0.1 (unlike deploy/docker-compose.yml's app service)
     # -- there is no nginx in front of the app itself here, so it must bind
     # the LAN-facing interface directly for the app itself to be reachable.
