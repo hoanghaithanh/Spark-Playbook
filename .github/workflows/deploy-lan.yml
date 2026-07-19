@@ -7,6 +7,15 @@ name: Deploy (LAN homelab)
 on:
   push:
     branches: [main]
+    # Skip doc-only pushes -- content/**/concept.md is rendered by the app
+    # (app/topics/loader.py) so it's left out of this ignore list on purpose;
+    # only paths nothing at runtime reads are listed here.
+    paths-ignore:
+      - '**/*.md'
+      - '!content/**/*.md'
+      - 'docs/**'
+      - 'images/**'
+      - 'LICENSE'
   workflow_dispatch: {}   # manual re-trigger without an empty commit
 
 concurrency:
