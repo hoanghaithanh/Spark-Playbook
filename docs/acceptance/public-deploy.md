@@ -1,7 +1,11 @@
 # Public Deploy — Acceptance Report + On-VM Checklist
 
-Status: Part A validated on the dev host (Windows + Docker Desktop, no live VM/domain this
-session); Part B checklist ready for the operator to execute on a real Linux VM.
+Status: Part A validated on the dev host (Windows + Docker Desktop) and accepted as the sole
+live-verification evidence for v1.0. **Part B (on-VM live acceptance) is explicitly waived, not
+pending** — human decision, 2026-07-19: this project will only ever run locally, so a real Linux
+VM + domain will never exist to execute Part B against. The Part B checklist below is kept as
+reference documentation of what a hypothetical future VM deploy would need to verify, not as open
+work blocking anything.
 Owner: test-engineer (acceptance validation)
 Date: 2026-07-17
 Scope: US-PD1 through US-PD6 (`docs/requirements/public-deploy.md`), against
@@ -190,7 +194,13 @@ evidence).
 
 ---
 
-## Part B — on-VM acceptance checklist
+## Part B — on-VM acceptance checklist (WAIVED — out of scope, 2026-07-19)
+
+**This checklist will never be executed.** The human has decided Spark Playbook is local-only
+permanently, so there will never be a real Linux VM + domain to run it against; v1.0's
+Definition of Done was met on Part A + the unit suite alone (see the Status line above and
+`docs/backlog.md`'s v1.0 rescope section). Kept below only as reference documentation for what a
+hypothetical future VM deploy would need to verify.
 
 Execute in order on the target Linux VM, after `deploy/README.md`'s prerequisites (VM sizing, OS
 packages, DNS A-record, firewall) are in place. Each item is tied to its US-PD acceptance

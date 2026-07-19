@@ -36,26 +36,31 @@ app (topic page, cluster control panel, embedded JupyterLab — `docs/acceptance
 Phase 2 self-check annotation engine, the Phase 2.5 realtime monitoring dashboard
 (`docs/acceptance/phase-2-5.md`), the unified topic-page shell (Concept/Notebook/Self-check tabs,
 cluster-config drawer, breadcrumb switcher), and a data-driven topics-index landing page (`GET /`,
-one card per `content/*/manifest.yaml` topic, no hardcoded list). 12 curriculum topics are built:
+one card per `content/*/manifest.yaml` topic, no hardcoded list). 13 curriculum topics are built:
 partitioning/shuffle, join strategies, bucketing, AQE, Catalyst plans, DAG & lazy evaluation,
 caching & persistence, window functions, serialization formats, executor tuning, memory management,
-and skew & salting.
+skew & salting, and checkpointing.
 
-**Currently in flight:**
-- **Sprint 6** (GitHub milestone #7, due 2026-07-20) — one item open: issue #31, a
-  `plan_parser.py` tokenizer tech-debt fix.
-- **v1.0 — Public Deploy** (GitHub milestone #8) — implemented and security-audited: a one-command
-  `./deploy.sh` stands up a containerized app + nginx reverse proxy on a VM, gated by HTTP basic
-  auth and Let's Encrypt TLS, with the spawned Spark cluster's ports bound to loopback only. The
-  live-VM acceptance checklist (real Linux VM + domain, real TLS issuance, real browser auth) has
-  not run yet — treat as merged, not yet live-verified. See
+**Shipped:**
+- **v1.0 — Public Deploy** (GitHub milestone #8, closed 2026-07-19) — implemented and
+  security-audited: a one-command `./deploy.sh` stands up a containerized app + nginx reverse
+  proxy on a VM, gated by HTTP basic auth and Let's Encrypt TLS, with the spawned Spark cluster's
+  ports bound to loopback only. Verified locally (unit suite, 317 tests, plus a local acceptance
+  pass — `docs/acceptance/public-deploy.md` Part A). **Live-VM acceptance (Part B) is explicitly
+  waived, not pending**: this project is only ever run locally, so a real Linux VM + domain will
+  never exist to verify against — that checklist is kept in `docs/acceptance/public-deploy.md`
+  as reference documentation, not tracked as open work. See
   [`docs/requirements/public-deploy.md`](docs/requirements/public-deploy.md),
   [`docs/architecture/public-deploy.md`](docs/architecture/public-deploy.md), and
   [Deploy (single-user, remote)](#deploy-single-user-remote) below for the full design and operator
   checklist.
 
+**Currently in flight:**
+- **Sprint 6** (GitHub milestone #7, due 2026-07-20) — one item open: issue #31, a
+  `plan_parser.py` tokenizer tech-debt fix.
+
 **Not yet started:** Phase 3 (streaming/Kafka) and the remaining Phase 4 curriculum topics
-(checkpointing, fault tolerance & lineage).
+(fault tolerance & lineage).
 
 For the full story-by-story history, acceptance evidence, and prioritized backlog, see
 [`docs/backlog.md`](docs/backlog.md). For the phased roadmap and architecture in detail, see
