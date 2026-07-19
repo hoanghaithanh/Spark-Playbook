@@ -46,6 +46,9 @@ var set) reproduces the exact localhost-only allowlist above.
 """
 
 import os
+from datetime import datetime, timezone
+
+from jupyter_server.services.contents.checkpoints import AsyncCheckpoints
 
 # The FastAPI app's origin — must match app/config.py::APP_ORIGIN.
 APP_ORIGIN = "http://localhost:8000"
@@ -82,3 +85,41 @@ c.ServerApp.allow_origin = PUBLIC_ORIGIN or APP_ORIGIN
 # proxied under one origin -- see PUBLIC_ORIGIN above), so XSRF checking can
 # and should stay enabled there.
 c.ServerApp.disable_check_xsrf = not PUBLIC_ORIGIN
+
+
+class NoOpCheckpoints(AsyncCheckpoints):
+    """A Checkpoints implementation that persists nothing.
+
+    This container runs as root and serves --notebook-dir=/workspace, which
+    on the LAN deploy path (deploy-lan.yml) IS the GitHub Actions runner's
+    own checkout (D1, same bind-mount-at-same-path pattern as the
+    PYTHONDONTWRITEBYTECODE fix in Dockerfile.app). Opening a
+    content/<topic>/notebook.ipynb through the Jupyter UI writes a
+    root-owned .ipynb_checkpoints/*-checkpoint.ipynb next to it; the
+    runner's non-root user then can't unlink it on the next checkout's
+    `git clean`, hard-failing the deploy (confirmed live). These notebooks
+    are already tracked in git -- an in-tree revert-to-checkpoint has no
+    value here, so checkpointing is disabled outright rather than merely
+    relocated. jupyter_server ships no built-in no-op Checkpoints class, so
+    this is the minimal override (verified against jupyter_server 2.14.2:
+    the default AsyncLargeFileManager's `checkpoints_class` trait requires
+    an AsyncCheckpoints subclass).
+    """
+
+    async def create_checkpoint(self, contents_mgr, path):
+        return {"id": "checkpoint", "last_modified": datetime.now(timezone.utc)}
+
+    async def restore_checkpoint(self, contents_mgr, checkpoint_id, path):
+        pass
+
+    async def rename_checkpoint(self, checkpoint_id, old_path, new_path):
+        pass
+
+    async def delete_checkpoint(self, checkpoint_id, path):
+        pass
+
+    async def list_checkpoints(self, path):
+        return []
+
+
+c.ContentsManager.checkpoints_class = NoOpCheckpoints

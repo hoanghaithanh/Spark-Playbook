@@ -24,6 +24,19 @@ jobs:
                             # label needed while there's only one target runner
     timeout-minutes: 20
     steps:
+      # This is a self-hosted runner: the workspace directory persists
+      # between runs instead of starting fresh, so a root-owned file left
+      # behind by a previous run (e.g. driver/jupyter_config.py's
+      # .ipynb_checkpoints incident, fixed in that file, or anything else
+      # written by a container that runs as root) permanently blocks every
+      # future `actions/checkout`'s `git clean` step with EACCES -- there is
+      # no fresh VM to reset the ownership for us. `docker run` as root
+      # (default) to hand the whole workspace back to the runner's own
+      # user/group before checkout touches it; safe no-op when nothing is
+      # stale.
+      - name: Fix ownership of any stale root-owned files from a prior run
+        run: docker run --rm -v "$PWD:/ws" -w /ws alpine chown -R "$(id -u):$(id -g)" .
+
       - name: Checkout
         uses: actions/checkout@v4
 
