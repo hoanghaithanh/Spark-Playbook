@@ -40,7 +40,7 @@ PRODUCE_SCRIPT = "/workspace/tools/kafka_producer/produce.py"
 # In-cluster DNS (D3) -- the driver container is itself inside `sparkpb-net`,
 # so this is the right default for a wrapper meant to run from a notebook
 # cell (as opposed to produce.py's own CLI, which is also runnable from a
-# host shell with --bootstrap localhost:9092, OQ-1).
+# host shell with --bootstrap 127.0.0.1:9092, OQ-1).
 DEFAULT_BOOTSTRAP = "kafka:9092"
 
 
@@ -89,3 +89,4 @@ def stop(proc: subprocess.Popen, timeout: float = 5.0) -> None:
         proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         proc.kill()
+        proc.wait()
