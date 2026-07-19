@@ -188,3 +188,11 @@ own ceremony (disposition of the two-issues-both-done state is trivial here, but
 calls for a recorded retro in `docs/retrospectives.md` before the milestone closes) and belongs at
 the next project-manager sprint-planning checkpoint, not folded into a same-day backlog-status
 edit. Flagging as ready for that checkpoint.
+
+## Sprint 8 close-out complete (2026-07-19)
+
+Sprint 8's close-out ceremony ran: retro recorded in `docs/retrospectives.md` (Sprint 8 section,
+covering both issues plus the commit-convention and backlog-table-rendering observations), and
+milestone #10 closed via `gh api` PATCH-to-closed (0 open / 2 closed, no open issues to flag).
+Backlog row #28 (Checkpointing) status above is unchanged as already-accurate; nothing further to
+update here.

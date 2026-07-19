@@ -219,3 +219,55 @@ decision not to extend the tokenizer without a concrete need, no code-reviewer f
 - Watch for the test-engineer early-stop-on-fabricated-blocker pattern (citing work that doesn't
   exist as a reason to halt) recurring in future sprints; one instance isn't enough to change process
   yet, but a second should prompt investigation into the agent's tool-use loop.
+
+## Sprint 8 (2026-07-21 – 2026-07-25), closed 2026-07-19
+
+**Scope:** Two issues — Checkpointing curriculum topic (issue #47, backlog row #28, US-C4), plus a
+pre-existing tech-debt issue pulled in alongside it, #38 (cross-worktree Docker Compose
+cluster-collision fix, found during Sprint 6's Memory Management acceptance pass) — same
+riding-alongside pattern as #31 in Sprint 6.
+
+**Outcome:** Both issues shipped and closed. #47 merged `1e7b80c`: content-only change
+(`content/checkpointing/{manifest.yaml,concept.md,notebook.ipynb}`) plus one new manifest
+`plan_nodes` rule (`checkpoint-truncated-scan`), zero engine code changes. All 4 US-C4 acceptance
+criteria PASS with live evidence against a real 3-worker cluster (`docs/qa/checkpointing-acceptance.md`):
+a 40-nested-join `.explain()` chain, `df.checkpoint()` collapsing the plan to a single
+`Scan ExistingRDD` node exactly as the architect's `topic-shell-redesign.md` addendum predicted, and
+the new manifest rule verified live through the real Self-check Reveal endpoint. Unit suite
+unchanged (324 passed before/after). #38 merged `d543f79`
+(`fix(lifecycle): guard spawn/teardown against cross-worktree cluster collisions`). Human gave final
+sign-off on #47 2026-07-19. Milestone #10 closed 2026-07-19 with 0 open / 2 closed.
+
+**What went well:**
+- The riding-alongside-a-curriculum-story pattern for pre-existing tech-debt (first used for #31 in
+  Sprint 6, repeated here for #38) continues to work cleanly — no scope conflict or sequencing issue
+  between the two issues.
+- #47's acceptance evidence again validated the "run it against a real cluster" methodology: the
+  architect's specific prediction (plan collapsing to a single `Scan ExistingRDD` node) was confirmed
+  live rather than just asserted from the design doc, consistent with every prior curriculum-topic
+  sprint.
+
+**What didn't go well:**
+- Both #47 and #38 were closed directly by their landing commits (`1e7b80c`, `d543f79`) without a
+  `Fixes #N` keyword, a departure from this repo's established close-at-merge convention (contrast
+  #35/#46 via `15e1c12`'s `Fixes #35, Fixes #46`, or #34/#37 via `d4e410f`'s `Fixes #34, Fixes #37`).
+  This is the first sprint where *every* landing commit skipped the keyword rather than most of them
+  using it — worth treating as a convention that needs restating to the developer role, not a
+  one-off.
+- Unrelated to Sprint 8's own scope, but discovered while updating `docs/backlog.md` for this
+  close-out: the backlog's story table had a rendering bug (an HTML example-comment sitting between
+  the table's header-separator row and its first data row broke GFM table parsing, collapsing all 44
+  rows into one unrendered paragraph in preview). Found and fixed same session (commit `ec7e11b`). Not
+  a Sprint 8 defect, but a good example of a doc-structure issue that only surfaces when someone
+  actually renders the file rather than just editing its source.
+- Sprint 7 (milestone #9) was closed without a retro ever being recorded — noted here as a gap in
+  this sprint's history for visibility, not being remediated as part of this close-out.
+
+**Try next sprint:**
+- Restate the `Fixes #N` close-at-merge convention explicitly (e.g. in the developer agent's
+  commit-message guidance) rather than relying on it being picked up implicitly — two sprints in a
+  row now (partially in earlier sprints, fully in Sprint 8) have shipped commits that closed issues
+  without the keyword.
+- After any large edit to `docs/backlog.md` (or other GFM tables), do a quick rendered-preview check
+  before considering the edit done — the header-separator/example-comment collision this session was
+  a purely structural GFM issue that a source-only read wouldn't catch.
