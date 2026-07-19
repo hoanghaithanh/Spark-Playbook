@@ -6,7 +6,12 @@ Date: 2026-07-15 (updated 2026-07-15 — Catalyst exclusion note and the annotat
 question both updated with settled/preferred decisions; see inline markers) (updated again
 2026-07-15, same day — added **US-C10 Memory Management**, closing a gap where
 `topics-content-spec.md`'s "07 — Memory Management" section had never been turned into a user
-story; see inline markers)
+story; see inline markers) (updated again 2026-07-18, requirements review ahead of #47/Sprint 8 —
+US-C4 got a new 4th acceptance criterion covering the "reliable vs. local checkpoints" and
+"streaming checkpoint tie-in" content promised in its own story text but not previously covered by
+any acceptance criterion, and its 3rd criterion's open question for the architect was sharpened
+with concrete grounding from `app/annotation/engine.py` and the existing `cache-hit-scan`
+precedent; see inline markers)
 
 ## Source and relationship to existing docs
 
@@ -194,7 +199,9 @@ long transformation chains need this and why it's mandatory for stateful streami
   lineage) and call `.explain()`, *then* the plan shows on the order of 40 nested join nodes.
 - *Given* the same DataFrame, *when* I call `setCheckpointDir()` + `df.checkpoint()` and then
   `.explain()` again, *then* the plan collapses to a single flat scan (per
-  `topics-content-spec.md`'s stated target).
+  `topics-content-spec.md`'s stated target). This notebook demo uses **reliable** checkpointing
+  (`setCheckpointDir()` + `df.checkpoint()`) specifically — `localCheckpoint()` is not exercised
+  live in this notebook; it's covered as concept content only, per the fourth criterion below.
 - *Given* this topic's self-check hypothesis is literally "does `.explain()` still show 40 nested
   joins, or a single flat scan after checkpointing," *when* the annotation engine's manifest is
   authored, *then* it needs a `plan_nodes` rule that recognizes a **checkpoint-derived scan node**
@@ -205,6 +212,35 @@ long transformation chains need this and why it's mandatory for stateful streami
   individual nodes, is an open question for the architect** — flagged in Open Question 1, not
   assumed solvable with a manifest entry alone. The human's stated preference (Open Question 1) is
   to extend the engine to cover this, pending architect confirmation.
+  **Added 2026-07-18, requirements review ahead of #47/Sprint 8:** a directly comparable precedent
+  already exists and should ground the architect's decision, rather than starting from a blank
+  page. `content/caching-persistence/manifest.yaml` already maps `InMemoryTableScan` to a distinct
+  `cache-hit-scan` concept via a plain `plan_nodes` rule — a single-node label on one plan capture,
+  no cross-plan comparison involved. `app/annotation/engine.py`'s `annotate_plan()` confirms the
+  matcher only ever sees one flat `operators` list per call, in manifest-declared match order —
+  it has no notion of "before" and "after" as two separate inputs today, and no other shipped
+  topic has needed one. That precedent means the *minimum* this AC requires — labeling the
+  post-checkpoint scan as its own concept, distinct from an ordinary read — is very likely a
+  manifest-only change mirroring `cache-hit-scan`, no engine change needed. **The part that is
+  genuinely open is narrower than "can the matcher recognize the node at all":** it's whether
+  Reveal also needs to assert something like *"this replaced N prior join nodes"* (which would
+  require capturing and comparing two separate plans — before-loop and after-checkpoint — a
+  capability `annotate_plan()` does not have today), or whether the visible 40-nodes-to-1-node
+  contrast the learner already sees across AC1's and AC2's two raw `.explain()` calls is
+  sufficient on its own, with Reveal's job limited to confirming/labeling what the single
+  post-checkpoint node *is* (same scope as `cache-hit-scan`). **This scoping choice — single-node
+  label vs. before/after plan-depth comparison — is the specific question for the architect to
+  resolve next; it is not resolved by this doc.**
+- *Given* this topic's story explicitly promises coverage of **reliable vs. local checkpoints**
+  and the **streaming checkpoint/offset-recovery tie-in**, neither of which the first three
+  criteria above test, *when* `concept.md` is authored, *then* it explicitly states (a) reliable
+  checkpointing writes to durable storage and survives executor failure, while local checkpointing
+  is faster but not durable, and (b) Structured Streaming's checkpoint mechanism (offsets + state
+  store) is the same lineage-truncation idea applied continuously, enabling exact resume after a
+  restart. **This is a content-only requirement** — no new self-check evidence and no live
+  executor-kill demonstration are required for this topic; proving durability by actually killing a
+  worker is explicitly Fault Tolerance & Lineage's (US-C9) and Structured Streaming's (US-C7)
+  scope, gated on Open Question 2, not Checkpointing's.
 
 **US-C5 — Caching & Persistence topic** *(supersedes/extends US-4.1 in `spark-playbook-mvp.md`)*.
 As a learner, I want a topic on `.cache()`/`.persist()` storage levels with a measurable
@@ -361,7 +397,8 @@ problem.
    treating it as a binary:
    - **Checkpointing (US-C4):** genuinely is a plan-node-matcher extension — a manifest
      `plan_nodes` rule on the post-checkpoint scan node. No structural engine change needed beyond
-     the rule itself.
+     the rule itself. **Not fully closed — see the mechanical sub-question below, flagged for the
+     architect as the next open item on this topic specifically.**
    - **Executor Tuning (US-C3)** and **Fault Tolerance & Lineage (US-C9):** do **NOT** extend the
      plan-node matcher. Both route through a reveal-time REST pull inside the Self-check tab's
      existing annotation route, reusing `app_client.fetch_executors()` / `fetch_task_list()` and
@@ -379,6 +416,20 @@ problem.
      revisited if the eviction/partial-recompute evidence turns out to need a capability beyond
      what `executor_metrics` and the existing storage endpoint already provide (no such gap is
      apparent from the mockup's stated target evidence). See backlog.md row #32.
+   - **Checkpointing mechanical sub-question, added 2026-07-18, requirements review ahead of
+     #47/Sprint 8 — Decision A settled the *category* (plan-node-matcher extension, not a REST
+     pull) but did not settle this narrower mechanical question, which is what the architect
+     needs to resolve next before/during Sprint 8 implementation:** can today's most-specific-first
+     `plan_nodes` matcher (`app/annotation/engine.py`'s `annotate_plan()`, which matches one flat
+     list of operators from a single plan capture, first-match-wins per manifest order) satisfy
+     US-C4's third acceptance criterion by simply labeling the post-checkpoint scan node as its own
+     concept — a single-node label on one plan, exactly the existing precedent set by
+     `content/caching-persistence/manifest.yaml`'s `InMemoryTableScan` → `cache-hit-scan` rule — or
+     does the "lineage was truncated" self-check claim need Reveal to actively assert *"this scan
+     replaced N prior join nodes,"* which would require capturing and diffing two separate plans
+     (before the loop, after the checkpoint) — a comparison `annotate_plan()` cannot do today and no
+     shipped topic has needed. This doc does not resolve which of those two the topic requires;
+     that scoping call, and any resulting engine work, is the architect's to make.
 2. **Kill-a-worker / restart-a-query safety UX (Fault Tolerance & Lineage, Structured Streaming).**
    Both topics' notebook walkthroughs involve killing or restarting a live process
    (`kill -9` on a worker container; stopping/restarting a streaming query). Neither this doc nor

@@ -147,6 +147,60 @@ clean one-dump→labels model with temporal/comparison logic it was never shaped
 recommendation gives the human what they wanted (signal in the hypothesis-first Self-check tab, not
 the dashboard) while avoiding that structural mislabel.
 
+### Addendum (2026-07-18) — Decision A resolved for Checkpointing (US-C4 / issue #47, Sprint 8): manifest-only, concrete rule shape
+
+Decision A settled the *category* (Checkpointing is a `plan_nodes` rule, not a REST pull) but left one
+sub-question open, which the requirements-analyst's 2026-07-18 review of US-C4 AC3 sharpened: does
+labeling the post-checkpoint scan need only a single-node manifest rule (the `cache-hit-scan`
+precedent), or does Reveal need to *assert* "this scan replaced N prior joins" — a before/after
+plan-diff `annotate_plan()` cannot do today? **Resolved: manifest-only, single-node rule. No engine
+change.** This confirms and makes concrete the checkpoint bullet above, and closes the "Quantified
+checkpoint before/after diff" open question below as **declined** for US-C4.
+
+**Why manifest-only is sufficient (pedagogical, not just cheap).** The self-check's job in this app is
+to *label what a node is* and confirm the learner's prediction — not to re-prove a fact the learner
+already observed. The 40-nested-joins → 1-flat-scan contrast is already fully visible in the learner's
+own two raw `.explain()` prints (AC1 and AC2); the engine sees neither of those and adds nothing to
+that count. AC3's hypothesis ("still 40 joins, or a single flat scan?") is answered the moment Reveal
+confirms the surviving node *is* a checkpoint-derived scan of the materialized data. Building a
+cross-plan diff to quantify "40 → 1" would re-derive, inside the engine, a number the learner already
+read off two prints — a genuinely new engine capability (two plan captures + a diff model,
+`annotate_plan()`'s one-list contract broken) bought for pure polish, needed by exactly zero shipped
+topics. Ponytail rung 1: declined. Consistent with the Alternatives row already in this ADR ("Build a
+plan-depth before/after diff mechanism into the engine — declined") — this addendum just makes that
+call binding for US-C4 rather than provisional.
+
+**Concrete rule shape (mirrors `content/caching-persistence/manifest.yaml`'s `cache-hit-scan`):**
+
+```yaml
+annotation:
+  plan_nodes:
+    - match: "Scan"
+      concept: checkpoint-truncated-scan
+      label: "Checkpoint-truncated lineage — a single flat scan of the checkpointed data; the 40 nested joins are gone"
+```
+
+**Two constraints the developer must honor / confirm empirically (R-Shell-1 concretized):**
+
+1. **`match:` must be `"Scan"`, not `"Scan ExistingRDD"`.** `plan_parser.parse_operators()` tokenizes
+   only a node's *first word* (`_OPERATOR_NAME_RE`, plan_parser.py:50; the same #31 constraint that
+   forced Serialization Formats / Skew & Salting onto `stage_metrics`). A reliable `df.checkpoint()`
+   (and `localCheckpoint()`) backs the DataFrame with a checkpointed RDD, whose physical node is
+   `RDDScanExec`, printed as `Scan ExistingRDD` → token `Scan`. A multi-word `match` would silently
+   never fire. This also cleanly distinguishes checkpoint from caching: cache re-reads print
+   `InMemoryTableScan`, checkpoint prints `Scan ExistingRDD` — genuinely different nodes, reinforcing
+   checkpoint ≠ cache.
+2. **Feed `annotate_plan()` the *post-checkpoint* capture only, where `Scan` is unambiguous.** `Scan`
+   is a deliberately generic token (a source read also prints `Scan parquet` → `Scan`). That is safe
+   *because* checkpointing truncates lineage: the post-checkpoint plan the notebook captures and
+   passes to Reveal contains a single scan node (the joins and the lookup reads are gone), so `match:
+   "Scan"` labels exactly one node — the checkpoint scan. The developer must verify against a live
+   `df.checkpoint()` `.explain(mode="formatted")` dump on the target Spark that (a) the surviving node
+   is indeed `Scan ExistingRDD` and (b) the captured post-checkpoint plan carries no second residual
+   `Scan`. If a stray `Scan` survives, it would take the same generic label — noticed at acceptance as
+   a mislabeled node; the fix stays a manifest/label wording tweak, still no engine change. AC4 is
+   content-only (`concept.md` durability + streaming-offset tie-in) and needs no manifest rule at all.
+
 ---
 
 ## Decision B — SSE migration: one shared collector, a fresh per-open panel connection; `/dashboard` full page becomes a redirect, `/dashboard/stream` stays

@@ -1,0 +1,45 @@
+# Spark Playbook — topic manifest (PLAN.md §3 schema).
+#
+# US-C4 (issue #47, Sprint 8): this topic's self-check hypothesis is literally
+# "does .explain() still show 40 nested joins, or a single flat scan after
+# checkpointing?" Per docs/architecture/topic-shell-redesign.md's Decision A
+# and its 2026-07-18 addendum (resolved, no engine change), this is a static
+# plan-structure fact -- a single-node label on the post-checkpoint plan,
+# exactly the existing content/caching-persistence/manifest.yaml precedent
+# (`InMemoryTableScan` -> `cache-hit-scan`). The learner already sees both the
+# 40-node and the 1-node `.explain()` prints directly in the notebook (AC1/
+# AC2); Reveal's job is only to confirm/label what the surviving node *is*,
+# not to re-derive a "40 -> 1" count the engine has no before/after diff
+# capability for (and none is needed -- see the addendum's "Alternatives"
+# row, declined as low-value polish for a genuinely new engine capability).
+#
+# `match: "Scan"` (not "Scan ExistingRDD") because plan_parser.py's
+# `_OPERATOR_NAME_RE` (line 50) tokenizes only a plan node's first word
+# (issue #31) -- confirmed against a live `df.checkpoint().explain(
+# mode="formatted")` dump on this project's dev cluster (3 workers, spark
+# 4.0.3): a reliable checkpoint backs the DataFrame with `RDDScanExec`,
+# printed as "Scan ExistingRDD (1)" -> tokenizes to "Scan". The captured
+# post-checkpoint plan the notebook feeds to Reveal contains exactly one
+# operator token, `['Scan']` -- no residual second Scan node, so the generic
+# "Scan" match is safe here (the 40 join/exchange/sort nodes are gone, not
+# just relabeled).
+
+id: checkpointing
+title: "Checkpointing"
+order: 12
+content: concept.md
+notebook: notebook.ipynb
+
+cluster_defaults:
+  worker_count: 3
+  worker_cores: 2
+  worker_memory_gb: 4
+  shuffle_partitions: 200
+  aqe_enabled: false
+requires_kafka: false
+
+annotation:
+  plan_nodes:
+    - match: "Scan"
+      concept: checkpoint-truncated-scan
+      label: "Checkpoint-truncated lineage — a single flat scan of the checkpointed data; the 40 nested joins are gone"
