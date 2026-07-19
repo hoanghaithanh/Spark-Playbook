@@ -271,3 +271,68 @@ sign-off on #47 2026-07-19. Milestone #10 closed 2026-07-19 with 0 open / 2 clos
 - After any large edit to `docs/backlog.md` (or other GFM tables), do a quick rendered-preview check
   before considering the edit done — the header-separator/example-comment collision this session was
   a purely structural GFM issue that a source-only read wouldn't catch.
+
+## Sprint 9 (2026-07-19 – 2026-07-23), closed 2026-07-19
+
+**Scope:** One issue — Fault Tolerance & Lineage curriculum topic (issue #49, backlog row #30,
+US-C9), solo (same pattern as Checkpointing in Sprint 8: an L-sized story with its own distinct
+engine consideration, no natural pairing candidate in the backlog). Self-check evidence sourcing
+was already settled by the architect 2026-07-15 (Decision A — reveal-time REST pull); the
+worker-kill safety UX open question was resolved to ship as a documented manual `docker kill` step
+rather than an in-app control, so no architect gate was needed ahead of this sprint.
+
+**Outcome:** #49 shipped and closed, content-only change (`content/fault-tolerance-lineage/`,
+commit `8c03676`), plus one new engine helper: reveal-time `_task_retry_evidence()` reusing
+`app_client.fetch_task_list()` and a shared `retries_by_index()` helper extracted from the
+dashboard collector (Decision A as designed). All 5 US-C9 acceptance criteria PASS with live
+evidence against a real 3-worker cluster across two independent runs
+(`docs/qa/fault-tolerance-lineage-acceptance.md`): a killed worker mid-job produced a real, measured
+partial retry (7 of 423 tasks across 2 stages on run 1, reproduced qualitatively on run 2 with a
+different kill target/timing), never a full job restart; the killed-worker run's result matched a
+clean run exactly (40-category signature, byte-identical); the new REST-pull evidence rendered
+correctly matching the notebook's own numbers; the worker-kill step ships as documented manual
+`docker kill`, no in-app control built; `concept.md` covers the recomputation-from-lineage model and
+the lineage-cost tie-in to Checkpointing/Caching. Code-reviewer found 1 Major (a FAILED/resubmitted
+stage's own row falsely reporting "0 retried" instead of pointing to the real evidence) and 2 Minor
+findings, all fixed and re-verified (350 passed, 2 skipped, up from 335 — test-engineer added 15 new
+unit tests pinning both retry-detection shapes and the fix). One caveat surfaced, not blocking: AC3's
+exact FAILED-status-on-a-superseded-attempt branch didn't occur naturally in either live run (both
+times the superseded attempt's REST status came back `COMPLETE`), so that branch is verified by a
+mocked unit test rather than independent live reproduction — the fix is logically sound and reviewed
+clean regardless. Human gave final sign-off 2026-07-19. Milestone #11 closed 2026-07-19 with 0 open /
+1 closed.
+
+A same-day, unrelated CI commit (`93d8876`, `ci(deploy-lan): skip doc-only pushes from triggering
+homelab build`) landed right after the content commit. It is not Sprint 9 scope — it's a deploy-lan
+pipeline efficiency fix (adds `paths-ignore` for docs/README/architecture-note edits, deliberately
+excluding `content/**/concept.md` since `app/topics/loader.py` renders it at runtime) that happened
+to land in the same window. Noted here for completeness, not counted as sprint output.
+
+**What went well:**
+- The Sprint 6/8 riding-alongside-tech-debt pattern was correctly *not* applied here: pre-existing
+  issue #48 (driver Spark UI deep links) was assessed as a candidate at sprint planning and
+  deliberately left out, since it's scoped to the public-deploy surface the human already ruled out
+  of future scope — a good example of the pattern being applied with judgment rather than by rote.
+- The Open Question 2 (worker-kill safety UX) resolution — ship as a documented manual step instead
+  of blocking on an in-app control — avoided a repeat of the "gap before Sprint 8" architect-pass
+  delay that the original Sprint 4-10 plan had built in for this exact story.
+- Live acceptance validation again earned its keep: the AC1 partial-retry claim was independently
+  reproduced twice with different kill targets/timing rather than asserted from a single run, and
+  the code-reviewer's Major finding (mislabeled "0 retried" row) was a real defect a static read of
+  the REST-pull logic could plausibly have missed.
+
+**What didn't go well:**
+- Same gap as Sprint 4/5's retros noted: this entry is written from the pipeline's own reported
+  facts (backlog row #30's narrative, commits, review outcomes, acceptance evidence) rather than a
+  separate human "what went well / what didn't" conversation this round.
+- AC3's exact failure-status branch (a superseded attempt reporting `FAILED` rather than `COMPLETE`)
+  didn't occur naturally in either live run and is only covered by a mocked unit test — not a defect
+  in what shipped, but a live-reproduction gap worth remembering if this code path is touched again.
+
+**Try next sprint:**
+- Continue assessing tech-debt-ride-along candidates against genuine relevance to active scope
+  (as done here for #48) rather than defaulting to pairing whenever a pre-existing open issue exists.
+- If a future change touches `_task_retry_evidence()` or `retries_by_index()`, prioritize getting a
+  live repro of the FAILED-on-superseded-attempt branch rather than relying on the mocked test alone.
+- Sprint 10 has not yet been proposed as its own milestone; that's a separate sprint-planning step
+  for the human to kick off, not bundled into this close-out.

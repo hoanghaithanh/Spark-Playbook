@@ -36,10 +36,10 @@ app (topic page, cluster control panel, embedded JupyterLab — `docs/acceptance
 Phase 2 self-check annotation engine, the Phase 2.5 realtime monitoring dashboard
 (`docs/acceptance/phase-2-5.md`), the unified topic-page shell (Concept/Notebook/Self-check tabs,
 cluster-config drawer, breadcrumb switcher), and a data-driven topics-index landing page (`GET /`,
-one card per `content/*/manifest.yaml` topic, no hardcoded list). 13 curriculum topics are built:
+one card per `content/*/manifest.yaml` topic, no hardcoded list). 14 curriculum topics are built:
 partitioning/shuffle, join strategies, bucketing, AQE, Catalyst plans, DAG & lazy evaluation,
 caching & persistence, window functions, serialization formats, executor tuning, memory management,
-skew & salting, and checkpointing.
+skew & salting, checkpointing, and fault tolerance & lineage.
 
 **Shipped:**
 - **v1.0 — Public Deploy** (GitHub milestone #8, closed 2026-07-19) — implemented and
@@ -55,12 +55,12 @@ skew & salting, and checkpointing.
   [Deploy (single-user, remote)](#deploy-single-user-remote) below for the full design and operator
   checklist.
 
-**Currently in flight:**
-- **Sprint 6** (GitHub milestone #7, due 2026-07-20) — one item open: issue #31, a
-  `plan_parser.py` tokenizer tech-debt fix.
+**Currently in flight:** no sprint currently in flight. Sprint 9 (Fault Tolerance & Lineage,
+GitHub milestone #11, issue #49) shipped and is human-signed-off, but the sprint's own close-out
+(retro + milestone close) hasn't run yet.
 
-**Not yet started:** Phase 3 (streaming/Kafka) and the remaining Phase 4 curriculum topics
-(fault tolerance & lineage).
+**Not yet started:** Phase 3 (streaming/Kafka) — Kafka infra is slated for Sprint 10, not yet
+scheduled.
 
 For the full story-by-story history, acceptance evidence, and prioritized backlog, see
 [`docs/backlog.md`](docs/backlog.md). For the phased roadmap and architecture in detail, see

@@ -225,3 +225,12 @@ did not confirm a close, only agreed to leave it out of Sprint 9.
 **Sprint 9 (GitHub milestone #11, 2026-07-19 – 2026-07-23) created 2026-07-19.** Issue
 [#49](https://github.com/hoanghaithanh/Spark-Playbook/issues/49) (Fault Tolerance & Lineage, backlog
 row #30) filed and milestoned.
+
+## Sprint 9 close-out complete (2026-07-19)
+
+Sprint 9's close-out ceremony ran: retro recorded in `docs/retrospectives.md` (Sprint 9 section,
+covering #49 plus a note on the same-day, unrelated `93d8876` deploy-lan CI commit that landed in
+the same window but isn't sprint scope), and milestone #11 closed via `gh api` PATCH-to-closed (0
+open / 1 closed, no open issues to flag). Backlog row #30 (Fault Tolerance & Lineage) status above
+is unchanged as already-accurate; nothing further to update here. Sprint 10 is not proposed in this
+pass — that's a separate sprint-planning step.
