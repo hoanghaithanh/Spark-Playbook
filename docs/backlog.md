@@ -234,3 +234,28 @@ the same window but isn't sprint scope), and milestone #11 closed via `gh api` P
 open / 1 closed, no open issues to flag). Backlog row #30 (Fault Tolerance & Lineage) status above
 is unchanged as already-accurate; nothing further to update here. Sprint 10 is not proposed in this
 pass — that's a separate sprint-planning step.
+
+## Sprint 10 proposed and confirmed (2026-07-19)
+
+project-manager proposed Sprint 10 scope per the ratified Sprint 8-10 resequencing above: Kafka
+infra (backlog row #19, Phase 3 — conditional Kafka/KRaft in the compose template, synthetic
+producer script, wired into the streaming topic, L) as the sole story, solo (same pattern as
+Checkpointing/Fault-Tolerance-&-Lineage in Sprints 8-9 — an L-sized story with its own distinct
+infrastructure consideration, no natural pairing candidate in the backlog). Unlike the recent
+curriculum stories, this one introduces a new compose-lifecycle service rather than content against
+an already-settled engine, so it is routed through an **architect design pass before developer
+implementation** — the pipeline's next step is architect, not developer directly. Human confirmed
+the proposal, including the architect-first routing, 2026-07-19.
+
+Also assessed: pre-existing open, unmilestoned tech-debt issue
+[#48](https://github.com/hoanghaithanh/Spark-Playbook/issues/48) (driver Spark UI deep links
+unreachable through the public HTTPS stack) as a candidate to ride along with Sprint 10, per the
+#31/#38 precedent from Sprints 6/8. **Left out, same reasoning as Sprint 9** — #48 is scoped to the
+public deploy surface the human already ruled out of future scope (local-only-forever decision,
+2026-07-19), and a Won't-Fix-candidate comment was already left on it during Sprint 9 planning; no
+new action taken on it here.
+
+**Sprint 10 (GitHub milestone #12, 2026-07-23 – 2026-07-27) created 2026-07-19.** Issue
+[#50](https://github.com/hoanghaithanh/Spark-Playbook/issues/50) (Kafka infra, backlog row #19)
+filed and milestoned; a comment was added on the issue noting the architect-first routing per the
+reasoning above.
