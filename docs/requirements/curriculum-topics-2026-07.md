@@ -11,7 +11,15 @@ US-C4 got a new 4th acceptance criterion covering the "reliable vs. local checkp
 "streaming checkpoint tie-in" content promised in its own story text but not previously covered by
 any acceptance criterion, and its 3rd criterion's open question for the architect was sharpened
 with concrete grounding from `app/annotation/engine.py` and the existing `cache-hit-scan`
-precedent; see inline markers)
+precedent; see inline markers) (updated again 2026-07-19, requirements review ahead of #49/Sprint
+9 — US-C9 got a new 5th acceptance criterion covering the concept.md content (recomputation model,
+lineage-length cost tradeoff, tie-in to why checkpointing exists) promised in its own story text
+but not previously covered by any acceptance criterion; its 3rd criterion's self-check-evidence
+description was sharpened with concrete grounding from `app/monitoring/collector.py`'s existing
+retry-counting logic and `app/web/routes/annotation.py`'s per-stage evidence-pull precedent; Open
+Question 2's Fault Tolerance & Lineage half was marked resolved per the 2026-07-19 human decision
+(worker-kill ships as a documented manual/external step); and a developer-facing implementation
+note flags the mid-job-kill timing-coordination risk; see inline markers)
 
 ## Source and relationship to existing docs
 
@@ -97,9 +105,10 @@ scratch.
   engine design is an architect decision. The human has stated a preferred *direction* (extend the
   annotation engine — see Open Question 1), but that is not the same as committing to specific
   code changes, which still await the architect's review.
-- **No UX/safety mechanism design for killing or restarting processes** (Fault Tolerance &
-  Lineage's worker kill, Structured Streaming's query restart) — flagged as Open Question 2, not
-  designed here.
+- **No UX/safety mechanism design for killing or restarting processes as an in-app control**
+  (Fault Tolerance & Lineage's worker kill, Structured Streaming's query restart) — flagged as
+  Open Question 2. Fault Tolerance & Lineage's half is now settled (ships as a documented
+  manual/external step, not designed here); Structured Streaming's half remains open.
 - **No change to Structured Streaming's Phase 3/Kafka sequencing dependency** (backlog #19 must
   ship first) — this doc only refines *what* the topic teaches, not *when* it can be built.
 - **No change to the three unaffected topics** (UDF/pandas UDF #16, Delta/Iceberg #20, tuning
@@ -231,6 +240,13 @@ long transformation chains need this and why it's mandatory for stateful streami
   post-checkpoint node *is* (same scope as `cache-hit-scan`). **This scoping choice — single-node
   label vs. before/after plan-depth comparison — is the specific question for the architect to
   resolve next; it is not resolved by this doc.**
+
+  **Resolution (Sprint 8, US-C4 shipped): single-node label was sufficient.** The manifest-only
+  `checkpoint-truncated-scan` rule (mirroring `cache-hit-scan` exactly) was built, shipped, and
+  validated live (`docs/qa/checkpointing-acceptance.md`) with zero engine changes
+  (`git diff -- app/annotation/` empty) — Reveal's job stayed limited to labeling what the single
+  post-checkpoint node *is*, and that was pedagogically sufficient in acceptance. No before/after
+  plan-depth comparison capability was built or needed.
 - *Given* this topic's story explicitly promises coverage of **reliable vs. local checkpoints**
   and the **streaming checkpoint/offset-recovery tie-in**, neither of which the first three
   criteria above test, *when* `concept.md` is authored, *then* it explicitly states (a) reliable
@@ -324,7 +340,13 @@ resilience-through-recomputation concretely rather than as a textbook claim.
 - *Given* a running multi-stage job (filter → join → groupBy) and a worker killed mid-job (e.g.
   `kill -9` on the worker process), *when* observed via the Stages tab / REST task-list data,
   *then* only the lost partitions' tasks are retried (per `topics-content-spec.md`'s target
-  example: "48/50 tasks kept their results, 2 retried"), not the whole job restarted.
+  example: "48/50 tasks kept their results, 2 retried"), not the whole job restarted. **The 48/50
+  figure is illustrative, not a hard pass/fail bar** — same lesson learned from Executor Tuning's
+  GC-fraction figures after issue #37 (a live acceptance run contradicted the doc's original
+  "reliably favors" claim). The notebook must report the real measured retry count (however many
+  partitions actually land on the killed worker), not assert an exact ratio; the testable claim is
+  "strictly fewer than the stage's total task count retried, and at least one retried" — not
+  "exactly 2 of 50."
 - *Given* the same scenario, *when* the job completes, *then* its final result matches a clean run
   with no worker killed — the notebook must include this correctness check, not just the
   retry-count observation.
@@ -333,13 +355,63 @@ resilience-through-recomputation concretely rather than as a textbook claim.
   recognize **task-retry-after-executor-loss** as a distinct signal — this is REST task-status
   data (`FAILED`/`resubmitted` task states tied to a specific executor loss event), not a
   plan-node concept at all, and **today's annotation engine has never been asked to label
-  something that isn't a static plan node.** Flagged as a real, likely engine-level gap in Open
-  Question 1, where the human's stated preference is to extend the engine to cover it, pending
-  architect confirmation — this doc does not assume it's solvable with a manifest entry alone.
-- **How a learner safely kills a worker process from a self-serve local tool is not decided by
-  this doc.** See Open Question 2 — this is a UX/safety design question, not a content question,
-  and this doc's acceptance criteria describe the *pedagogical* target (what the learner should
-  observe), not the mechanism for triggering the failure.
+  something that isn't a static plan node.** **Settled by the architect** (Decision A,
+  `docs/architecture/topic-shell-redesign.md`): this is a reveal-time REST pull, not a plan-matcher
+  extension, reusing `app_client.fetch_task_list()` and the dashboard collector's existing
+  retry-counting logic — not assumed solvable with a manifest entry alone.
+
+  **Concrete grounding for the developer, added 2026-07-19 (mirrors the sharpening already done
+  for US-C4's AC3):** the "existing retry-counting logic" Decision A refers to is
+  `app/monitoring/collector.py`'s `DashboardCollector._build_partitions()` — it already groups a
+  stage's raw task list by each task's `index` field and takes the max `attempt` seen per index
+  (`retries_by_index`), which is exactly "how many times was this partition retried." The closest
+  existing wiring precedent for plugging a new per-stage evidence pull into the Reveal route is
+  `app/web/routes/annotation.py`'s `_duration_quantiles()` — an optional second REST call made
+  once per stage, gated by a manifest boolean (`task_duration_quantiles`), feeding into
+  `_stage_rows()`'s existing iterate-every-stage shape. A task-retry pull needs the same
+  iterate-every-stage shape (unlike `executor_metrics`/US-C3, which is a single per-app pull via
+  `fetch_executors()`) because at Reveal time it isn't known in advance which stage the killed
+  worker's tasks landed in — every stage needs to be checked via `fetch_task_list()`, same as
+  `_stage_rows()` already does for `stage_metrics`. **Whether to extract
+  `_build_partitions()`'s grouping logic into a shared helper both the collector and the
+  annotation route call, or write an equivalent small grouping directly in the new annotation-route
+  helper, is left to the developer** — the data-sourcing category itself (REST pull via
+  `fetch_task_list()`) is already decided by Decision A; this is ordinary implementation judgment,
+  not a fresh architect question.
+- **Worker-kill mechanism: settled 2026-07-19, not an open item for this story.** How a learner
+  triggers the worker kill is a documented manual/external step (`docker kill
+  <worker-container>` or `kill -9` on the worker process) — the same mechanism the developer
+  already uses to build/validate the notebook. See Open Question 2's disposition below. An in-app
+  "simulate worker failure" control is deliberately scoped out as separable future work, not part
+  of this story.
+- *Given* this topic's story text promises the learner understands **why long lineage chains are
+  costly to recompute, and why that's the reason checkpointing/short chains matter for
+  resilience**, which none of the criteria above test, *when* `concept.md` is authored, *then* it
+  explicitly states, per `topics-content-spec.md`'s own "Why it matters" text for this topic:
+  (a) Spark recovers a lost partition by recomputing it from its recorded lineage rather than by
+  replicating data, and the driver reschedules only the lost tasks rather than restarting the
+  whole job; and (b) recomputation cost scales with lineage length — cheap for a short chain,
+  expensive for a long one — which is *why* Checkpointing (US-C4) truncating lineage and Caching
+  (US-C5) shortening the recompute path both matter for resilience, not just speed, and why a job
+  that "just hangs" after a worker dies is often silently recomputing a long lineage rather than
+  actually stuck. **Added 2026-07-19 — this is a content-only requirement**, mirroring how US-C4's
+  AC4 was added on requirements review: no new self-check evidence beyond the third criterion above
+  is required to satisfy it; the tie-in is prose plus the notebook's own filter→join→groupBy chain
+  as a concrete example, following the same connect-the-dots pattern
+  `content/checkpointing/concept.md` already uses for its own Structured Streaming tie-in.
+
+**Developer-facing implementation note, added 2026-07-19 (a heads-up, not a new acceptance
+criterion):** the first criterion above requires killing a worker *while the job is running*, not
+before or after. Both the Checkpointing and Executor Tuning acceptance passes surfaced
+timing/coordination bugs only visible on a live run (a stuck kernel holding the whole cluster's
+capacity past a failed hard assertion in #37; a measured direction flipping between runs). This
+topic has a similar, and likely sharper, timing risk: the notebook's job needs to run long enough
+(e.g., a large enough dataset/shuffle) that a `docker kill` issued from outside the notebook has a
+real window to land mid-stage — not finish before the kill, and not hang indefinitely after it.
+This doc does not prescribe the exact dataset size or timing mechanism (that is the developer's
+implementation call, informed by live experimentation the same way `content/executor-tuning/
+manifest.yaml` documents its own deviation-and-measurement history) — flagged here only so it
+isn't discovered cold during acceptance.
 
 **US-C10 — Memory Management topic** *(supersedes/extends US-4.4 in `spark-playbook-mvp.md`;
 added 2026-07-15, same day, as a correction — see the Source-and-relationship note above)*.
@@ -428,8 +500,8 @@ problem.
      does the "lineage was truncated" self-check claim need Reveal to actively assert *"this scan
      replaced N prior join nodes,"* which would require capturing and diffing two separate plans
      (before the loop, after the checkpoint) — a comparison `annotate_plan()` cannot do today and no
-     shipped topic has needed. This doc does not resolve which of those two the topic requires;
-     that scoping call, and any resulting engine work, is the architect's to make.
+     shipped topic has needed. **RESOLVED — see US-C4's third criterion above:** single-node label
+     was sufficient; shipped and validated live in Sprint 8 with zero engine changes.
 2. **Kill-a-worker / restart-a-query safety UX (Fault Tolerance & Lineage, Structured Streaming).**
    Both topics' notebook walkthroughs involve killing or restarting a live process
    (`kill -9` on a worker container; stopping/restarting a streaming query). Neither this doc nor
@@ -437,7 +509,15 @@ problem.
    local tool — a raw shell command works for a developer building the topic, but is a real UX gap
    for the tool's actual learner-facing surface. Needs its own UX/safety design pass (e.g., an
    explicit "simulate worker failure" control scoped to the training cluster only, vs. leaving it
-   as a documented manual step outside the app). Flagged, not designed here.
+   as a documented manual step outside the app).
+   **Fault Tolerance & Lineage's half RESOLVED 2026-07-19** (human decision, Sprint 9 planning):
+   the worker-kill trigger ships as a documented manual/external step (`docker kill
+   <worker-container>` or `kill -9` on the worker process) — the same mechanism the developer
+   already uses to build/validate the notebook. An in-app "simulate worker failure" control is
+   deliberately scoped out as separable future work, not part of US-C9. **Structured Streaming's
+   query-restart half of this question remains genuinely open** — not resolved by this update, and
+   not currently blocking, since that topic (US-C7 / backlog #18) is sequenced well behind Kafka
+   infra (#19) regardless.
 3. **Structured Streaming's Phase 3/Kafka dependency is a hard sequencing constraint, not a
    scope question.** Restated from Constraints for visibility: US-C7 cannot start before backlog
    #19 (conditional Kafka in the compose template) ships, regardless of sprint capacity elsewhere
