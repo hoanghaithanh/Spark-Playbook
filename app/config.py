@@ -40,6 +40,17 @@ WEB_STATIC_DIR = APP_DIR / "web" / "static"
 PROJECT_NAME = "sparkpb"
 IMAGE_NAME = "sparkpb/spark:4.0.3"
 
+
+def norm_path(path: "str | os.PathLike[str]") -> str:
+    """Normalize an OS-native path for cross-worktree ownership comparison
+    (issue #38 ownership guard). Compose's `project.working_dir` container
+    label and `RENDERED_DIR` must be compared this way, not via raw string
+    equality -- see docs/architecture/worktree-cluster-isolation.md R-WT-1
+    (the label comes back backslash-style on Windows and may differ in
+    separator/case/`.`-`..` normalization from a `pathlib`-derived string).
+    """
+    return os.path.normcase(os.path.normpath(str(path)))
+
 # The FastAPI app's own origin, per PLAN.md §1's architecture diagram
 # ("browser at http://localhost:8000"). Referenced by driver/jupyter_config.py
 # (PLAN.md §6/R3, issue #7) for the CSP `frame-ancestors` allowlist that lets
@@ -78,6 +89,20 @@ DRIVER_APP_UI_URL = f"http://{CLUSTER_HOST}:4040"
 
 JUPYTER_URL = os.environ.get("JUPYTER_URL", "http://localhost:8888")
 MASTER_UI_URL = os.environ.get("MASTER_UI_URL", "http://localhost:8080")
+
+# Browser-facing driver Spark UI host (bug found live: the "Open in Spark UI"
+# deep link and the dashboard's "Driver UI" header link were built from
+# AppRef.base_url / DRIVER_APP_UI_URL -- both CLUSTER_HOST-based, correct for
+# the app's own server-side REST reads but not reachable from the browser once
+# the app runs in its own container, same class of bug JUPYTER_URL/
+# MASTER_UI_URL were split out to fix. Can't reuse that same fixed-URL
+# pattern here though: the driver's actual port varies across
+# DRIVER_APP_UI_PORTS per session (docs/architecture/driver-port-discovery.md),
+# so only the *host* is overridable -- app_client.browser_ui_url() combines it
+# with whichever port AppRef.base_url actually resolved to.
+DRIVER_UI_HOST = os.environ.get("DRIVER_UI_HOST", "localhost")
+# Fallback for the header link before any application has started yet.
+DRIVER_UI_URL = f"http://{DRIVER_UI_HOST}:4040"
 
 # Public HTTPS origin of a deployed instance (e.g. "https://spark.example.com"),
 # empty in dev. Forwarded into the spawned driver container as

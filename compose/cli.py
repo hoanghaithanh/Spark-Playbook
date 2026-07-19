@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -153,7 +154,65 @@ def _run_compose(*args: str) -> int:
     return result.returncode
 
 
+def _norm_path(path) -> str:
+    """Mirrors `app/config.py::norm_path` -- kept as a local copy since this
+    CLI deliberately does not import `app/` (see module docstring)."""
+    return os.path.normcase(os.path.normpath(str(path)))
+
+
+def _running_owner() -> str | None:
+    """Sync mirror of `app/lifecycle/compose_ops.py::running_owner()` (issue
+    #38 ownership guard, docs/architecture/worktree-cluster-isolation.md).
+    Normalized `project.working_dir` of the worktree owning the currently
+    running `sparkpb` Compose project, or None if nothing is running. Never
+    raises -- degrades to None on any docker error (fail-open by design)."""
+    try:
+        ps = subprocess.run(
+            ["docker", "ps", "-q", "--filter", f"label=com.docker.compose.project={PROJECT_NAME}"],
+            capture_output=True, text=True,
+        )
+        if ps.returncode != 0:
+            return None
+        ids = [line.strip() for line in ps.stdout.splitlines() if line.strip()]
+        if not ids:
+            return None
+
+        inspect = subprocess.run(
+            ["docker", "inspect", ids[0], "--format",
+             '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}'],
+            capture_output=True, text=True,
+        )
+        if inspect.returncode != 0:
+            return None
+        label = inspect.stdout.strip()
+        if not label:
+            return None
+        return _norm_path(label)
+    except OSError:
+        return None
+
+
+def _refuse_if_foreign_owner() -> bool:
+    """Returns True (and prints a clear refusal) if a 'sparkpb' cluster is
+    already running, owned by a different worktree. Guard only, not a lock
+    -- see docs/architecture/worktree-cluster-isolation.md."""
+    owner = _running_owner()
+    self_owner = _norm_path(RENDERED_DIR)
+    if owner is None or owner == self_owner:
+        return False
+    print(
+        f"ERROR: a '{PROJECT_NAME}' cluster is already running, owned by another "
+        f"worktree ({owner}). Refusing -- it would tear down that worktree's live "
+        f"cluster. Tear it down there first, or wait.",
+        file=sys.stderr,
+    )
+    return True
+
+
 def cmd_down(_args: argparse.Namespace) -> int:
+    if _refuse_if_foreign_owner():
+        return 1
+
     if not COMPOSE_FILE.exists():
         # Nothing rendered yet in this checkout; still attempt a project-scoped
         # down so stale containers from a previous render are cleaned up
@@ -170,6 +229,9 @@ def cmd_up(args: argparse.Namespace) -> int:
             "ERROR: no rendered compose file found. Run `python compose/cli.py render` first.",
             file=sys.stderr,
         )
+        return 1
+
+    if _refuse_if_foreign_owner():
         return 1
 
     # PLAN.md §2 step 3 / R4: always tear down any prior stack first, and await

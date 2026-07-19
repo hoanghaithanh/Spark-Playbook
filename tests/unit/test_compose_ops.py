@@ -146,3 +146,59 @@ class TestNormalCompletionUnaffected:
         assert result.stdout == "out"
         assert result.stderr == "err"
         fake_proc.kill.assert_not_called()
+
+
+class TestRunningOwner:
+    """`running_owner()` — issue #38 ownership guard
+    (docs/architecture/worktree-cluster-isolation.md). Mocks `_run()` at the
+    module boundary rather than real subprocesses/Docker."""
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_nothing_running(self, monkeypatch):
+        ps_result = compose_ops.CommandResult(returncode=0, stdout="", stderr="")
+        monkeypatch.setattr(compose_ops, "_run", AsyncMock(return_value=ps_result))
+
+        assert await compose_ops.running_owner() is None
+
+    @pytest.mark.asyncio
+    async def test_returns_normalized_working_dir_when_running(self, monkeypatch):
+        ps_result = compose_ops.CommandResult(returncode=0, stdout="abc123\n", stderr="")
+        # Windows-style backslash path, as observed live per the ADR's
+        # R-WT-1 empirical caveat.
+        inspect_result = compose_ops.CommandResult(
+            returncode=0, stdout="C:\\repo\\worktrees\\A\\compose\\rendered\n", stderr=""
+        )
+        run_mock = AsyncMock(side_effect=[ps_result, inspect_result])
+        monkeypatch.setattr(compose_ops, "_run", run_mock)
+
+        owner = await compose_ops.running_owner()
+
+        assert owner == compose_ops.config.norm_path("C:\\repo\\worktrees\\A\\compose\\rendered")
+        # docker ps then docker inspect on the first id found.
+        assert run_mock.await_args_list[0].args[:2] == ("docker", "ps")
+        assert run_mock.await_args_list[1].args[:2] == ("docker", "inspect")
+        assert run_mock.await_args_list[1].args[2] == "abc123"
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_ps_fails(self, monkeypatch):
+        ps_result = compose_ops.CommandResult(returncode=1, stdout="", stderr="daemon unreachable")
+        monkeypatch.setattr(compose_ops, "_run", AsyncMock(return_value=ps_result))
+
+        assert await compose_ops.running_owner() is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_inspect_fails(self, monkeypatch):
+        ps_result = compose_ops.CommandResult(returncode=0, stdout="abc123\n", stderr="")
+        inspect_result = compose_ops.CommandResult(returncode=1, stdout="", stderr="no such object")
+        monkeypatch.setattr(compose_ops, "_run", AsyncMock(side_effect=[ps_result, inspect_result]))
+
+        assert await compose_ops.running_owner() is None
+
+    @pytest.mark.asyncio
+    async def test_never_raises_when_docker_missing(self, monkeypatch):
+        async def _raise(*args, **kwargs):
+            raise FileNotFoundError("docker not found")
+
+        monkeypatch.setattr(compose_ops, "_run", _raise)
+
+        assert await compose_ops.running_owner() is None

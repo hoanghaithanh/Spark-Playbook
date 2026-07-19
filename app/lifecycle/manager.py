@@ -31,6 +31,11 @@ from app.lifecycle.renderer import ClusterParams, ValidationResult
 
 logger = logging.getLogger(__name__)
 
+# This worktree's own identity for the cross-worktree ownership guard (issue
+# #38, docs/architecture/worktree-cluster-isolation.md). Computed once at
+# import time -- RENDERED_DIR is fixed per process/worktree.
+_SELF_OWNER = config.norm_path(config.RENDERED_DIR)
+
 
 class ClusterState(str, Enum):
     IDLE = "idle"
@@ -99,6 +104,9 @@ class ClusterManager:
             self.message = f"Rejected: {self.error}"
             return SpawnOutcome(ok=False, status=self.status())
 
+        if await self._refuse_if_foreign_owner():
+            return SpawnOutcome(ok=False, status=self.status())
+
         async with self._mutate_lock:
             await self._cancel_and_teardown_locked()
             self.spawn_id += 1
@@ -130,6 +138,9 @@ class ClusterManager:
         return SpawnOutcome(ok=ok, status=self.status())
 
     async def teardown(self) -> ManagerStatus:
+        if await self._refuse_if_foreign_owner():
+            return self.status()
+
         async with self._mutate_lock:
             await self._cancel_and_teardown_locked()
             self.state = ClusterState.IDLE
@@ -142,6 +153,30 @@ class ClusterManager:
     # ------------------------------------------------------------------ #
     # internals
     # ------------------------------------------------------------------ #
+
+    async def _refuse_if_foreign_owner(self) -> bool:
+        """Guard against a foreign worktree's live cluster (issue #38): if a
+        `sparkpb` Compose project is already running and owned by a
+        *different* worktree, refuse the operation instead of tearing it
+        down. Returns True (and sets FAILED status) if the caller must stop;
+        same-worktree or nothing-running returns False and changes nothing.
+
+        # ponytail: naive read-then-act check, not a distributed lock --
+        # a real cross-process lock is only worth building if simultaneous
+        # cold spawns across worktrees become common (ADR R-WT-3).
+        """
+        owner = await compose_ops.running_owner()
+        if owner is None or owner == _SELF_OWNER:
+            return False
+
+        self.state = ClusterState.FAILED
+        self.error = (
+            f"A '{config.PROJECT_NAME}' cluster is already running, owned by another "
+            f"worktree ({owner}). Refusing to spawn/teardown -- it would tear down "
+            f"that worktree's live cluster. Tear it down there first, or wait."
+        )
+        self.message = f"Refused: {self.error}"
+        return True
 
     async def _cancel_and_teardown_locked(self) -> None:
         """Cancel any in-flight spawn task and guarantee teardown (D5 step 1-2).

@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app import config
 from app.lifecycle import manager as manager_module
 from app.lifecycle.compose_ops import CommandResult
 from app.lifecycle.manager import ClusterState
@@ -366,3 +367,76 @@ class TestCancelledTaskUnexpectedExceptionIsLogged:
         # Control flow unchanged: teardown still proceeds to IDLE-bound state
         # regardless of the swallowed exception.
         assert fresh_manager.state == ClusterState.TEARING_DOWN
+
+
+class TestForeignOwnerGuard:
+    """Issue #38 cross-worktree ownership guard
+    (docs/architecture/worktree-cluster-isolation.md, Option B): `spawn()`
+    and `teardown()` must refuse instead of tearing down a cluster owned by
+    a different worktree, while leaving same-worktree/nothing-running
+    behavior completely unchanged."""
+
+    @pytest.mark.asyncio
+    async def test_spawn_refused_when_foreign_owner_running(self, fresh_manager, mocks, monkeypatch):
+        monkeypatch.setattr(
+            manager_module.compose_ops, "running_owner",
+            AsyncMock(return_value="c:\\other\\worktree\\compose\\rendered"),
+        )
+
+        outcome = await fresh_manager.spawn(params())
+
+        assert outcome.ok is False
+        assert outcome.status.state == ClusterState.FAILED
+        assert "other" in outcome.status.error.lower() or "worktree" in outcome.status.error.lower()
+        # The guard fires before anything else touches compose -- no down/up/
+        # render calls at all.
+        assert mocks["calls"] == []
+        mocks["down"].assert_not_called()
+        mocks["up"].assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_teardown_refused_when_foreign_owner_running(self, fresh_manager, mocks, monkeypatch):
+        monkeypatch.setattr(
+            manager_module.compose_ops, "running_owner",
+            AsyncMock(return_value="c:\\other\\worktree\\compose\\rendered"),
+        )
+
+        status = await fresh_manager.teardown()
+
+        assert status.state == ClusterState.FAILED
+        assert mocks["calls"] == []
+        mocks["down"].assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_spawn_proceeds_when_owner_is_self(self, fresh_manager, mocks, monkeypatch):
+        monkeypatch.setattr(
+            manager_module.compose_ops, "running_owner",
+            AsyncMock(return_value=manager_module._SELF_OWNER),
+        )
+
+        outcome = await fresh_manager.spawn(params())
+
+        assert outcome.ok is True
+        assert outcome.status.state == ClusterState.READY
+
+    @pytest.mark.asyncio
+    async def test_spawn_proceeds_when_nothing_running(self, fresh_manager, mocks, monkeypatch):
+        monkeypatch.setattr(
+            manager_module.compose_ops, "running_owner", AsyncMock(return_value=None),
+        )
+
+        outcome = await fresh_manager.spawn(params())
+
+        assert outcome.ok is True
+        assert outcome.status.state == ClusterState.READY
+
+    @pytest.mark.asyncio
+    async def test_self_owner_normalization_matches_a_realistic_label(self, monkeypatch):
+        """R-WT-1: a same-worktree respawn must not misfire even when the
+        label comes back with different separators/case than
+        `config.RENDERED_DIR`'s own string form (Windows label vs. pathlib)."""
+        # Build a same-path label that differs only in separator/case from
+        # RENDERED_DIR, the way a live Windows `docker inspect` label does.
+        raw_label = str(config.RENDERED_DIR).replace("/", "\\").upper()
+
+        assert config.norm_path(raw_label) == manager_module._SELF_OWNER
