@@ -28,8 +28,11 @@
                             public-deploy.md D4), empty string in dev; forwarded to the
                             driver as SPARKPB_PUBLIC_ORIGIN for driver/jupyter_config.py's
                             CSP frame-ancestors allowlist
-
-  No Kafka service (Phase 3, out of scope here). No `include_kafka` conditional yet.
+    include_kafka         - bool (default false), docs/architecture/kafka-streaming-infra.md
+                            D1: render-time flag driven by Topic.requires_kafka, conditionally
+                            renders the `kafka` KRaft broker service below, inside this same
+                            `sparkpb` project (D2 — load-bearing for the issue-#38 ownership
+                            guard and single-slot down/up, which are project-scoped).
 
   Port surface (docs/architecture/public-deploy.md D2): every published port
   below binds 127.0.0.1 only, never 0.0.0.0 — the internet-facing port surface
@@ -191,3 +194,77 @@ services:
           cpus: "2"
           memory: {{ driver_memory_gb }}g
     restart: "no"
+
+{% if include_kafka %}
+  kafka:
+    image: apache/kafka:3.9.0        # official ASF image, native KRaft; matches apache/spark provenance
+    container_name: spark-kafka
+    hostname: kafka
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      # Two data listeners (D3): PLAINTEXT for in-cluster (advertised as the DNS
+      # name kafka:9092), PLAINTEXT_HOST for the loopback host publish (advertised
+      # as 127.0.0.1:9092). Distinct in-container ports (9092 vs 29092) are required.
+      #
+      # DEVIATION FROM THE ADR'S LITERAL YAML: the ADR's draft used an explicit
+      # `0.0.0.0:<port>` bind host in KAFKA_LISTENERS. Verified live (docker run
+      # apache/kafka:3.9.0) that this exact value makes the native image's
+      # KafkaDockerWrapper/StorageTool crash at startup with
+      # "IllegalArgumentException: advertised.listeners cannot use the
+      # nonroutable meta-address 0.0.0.0" -- reproduced even with a single
+      # PLAINTEXT-only listener, so it isn't specific to the dual-listener setup.
+      # The official apache/kafka image's own quickstart convention -- an empty
+      # host before the port (`://:9092`), which binds all interfaces exactly
+      # like `0.0.0.0` does -- boots cleanly (confirmed live) with the same
+      # KAFKA_ADVERTISED_LISTENERS/KAFKA_LISTENER_SECURITY_PROTOCOL_MAP as
+      # written. Bind-syntax fix only; the two distinct in-container ports and
+      # the security-protocol map are unchanged from D3.
+      #
+      # DEVIATION FROM THE ADR'S LITERAL YAML (second one, R-K6): PLAINTEXT_HOST's
+      # advertised address is 127.0.0.1:9092, not localhost:9092 as D3 drafted.
+      # Kafka's client protocol is two-hop: after bootstrapping, the client
+      # reconnects to whatever address this listener advertises -- so if
+      # produce.py's --bootstrap defaults to 127.0.0.1:9092 (the fix for
+      # localhost resolving IPv6-first with nothing published on ::1, see
+      # produce.py's module docstring) but the broker still hands back
+      # "localhost:9092" for the second-hop metadata reconnect, the same
+      # IPv6-resolution failure recurs one hop later. Pinning both hops to
+      # 127.0.0.1:9092 keeps them consistent.
+      KAFKA_LISTENERS: "PLAINTEXT://:9092,PLAINTEXT_HOST://:29092,CONTROLLER://:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,PLAINTEXT_HOST://127.0.0.1:9092"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"     # producer's first send creates the demo topic
+      # DEVIATION FROM THE ADR: not in D3's original block. produce.py's
+      # --partitions flag (D5) originally pre-created the topic via
+      # KafkaAdminClient to control partition count; verified live that
+      # kafka-python(-ng)'s AdminClient controller-discovery
+      # (_refresh_controller_id) raises NodeNotReadyError against this
+      # single-node KRaft broker (a documented kafka-python limitation, not a
+      # config error -- the same client connects and produces successfully
+      # via the plain KafkaProducer path). Dropped the admin-client
+      # dependency; the broker's own auto-create partition count is set here
+      # to match produce.py's DEFAULT_PARTITIONS (3) instead.
+      KAFKA_NUM_PARTITIONS: "3"
+      KAFKA_HEAP_OPTS: "-Xmx512m -Xms512m"        # bounded heap under the 2GB container limit
+      KAFKA_LOG_RETENTION_MINUTES: "10"           # bounded disk (D6)
+      KAFKA_LOG_RETENTION_BYTES: "536870912"      # 512MB size cap per partition (D6)
+      CLUSTER_ID: "sparkpb-kafka-kraft-0001"      # fixed → deterministic storage format
+    ports:
+      - "127.0.0.1:9092:29092"   # host 9092 → PLAINTEXT_HOST listener (29092), loopback only (D3)
+    networks: [sparkpb-net]
+    depends_on: [spark-master]
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2g
+    restart: "no"
+    # No volumes: -- broker data lives in the container's ephemeral writable
+    # layer, so `docker compose down` wipes it (D6). No repo mount needed.
+{% endif %}

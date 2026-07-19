@@ -23,6 +23,9 @@ class ClusterParams:
     driver_memory_gb: int = config.DEFAULTS["driver_memory_gb"]
     shuffle_partitions: int = config.DEFAULTS["shuffle_partitions"]
     aqe_enabled: bool = config.DEFAULTS["aqe_enabled"]
+    # Kafka ADR D1: render-time flag driven by Topic.requires_kafka, not a
+    # user-facing toggle. Defaults false so every existing spawn is unaffected.
+    include_kafka: bool = False
 
 
 @dataclass
@@ -62,6 +65,10 @@ def validate(params: ClusterParams) -> ValidationResult:
         + params.worker_count * params.worker_memory_gb
         + params.driver_memory_gb
     )
+    if params.include_kafka:
+        # Kafka ADR (docs/architecture/kafka-streaming-infra.md) resource-ceiling
+        # accounting: +2GB conservative reservation when the broker is included.
+        total_gb += config.KAFKA_MEMORY_GB
     if total_gb > config.RESOURCE_CEILING_GB:
         errors.append(
             f"requested config totals ~{total_gb}GB, exceeding the "
@@ -94,6 +101,7 @@ def render(params: ClusterParams) -> None:
         "driver_memory_gb": params.driver_memory_gb,
         "shuffle_partitions": params.shuffle_partitions,
         "aqe_enabled": params.aqe_enabled,
+        "include_kafka": params.include_kafka,
         "public_origin": config.PUBLIC_ORIGIN,
     }
 

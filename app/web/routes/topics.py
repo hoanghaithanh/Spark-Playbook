@@ -94,6 +94,9 @@ async def spawn_cluster(
         driver_memory_gb=config.DEFAULTS["driver_memory_gb"],
         shuffle_partitions=shuffle_partitions,
         aqe_enabled=aqe_enabled,
+        # Kafka ADR D1: not a form field -- driven by the topic manifest, not
+        # a user-facing toggle.
+        include_kafka=topic.requires_kafka,
     )
     # Bounded wait per PLAN.md §2: 60s default target, 90s hard cap for larger configs.
     timeout_s = config.READY_TIMEOUT_DEFAULT_S if worker_count <= 3 else config.READY_TIMEOUT_MAX_S

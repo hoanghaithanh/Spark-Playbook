@@ -62,7 +62,12 @@ DEFAULTS = {
     "driver_memory_gb": 2,
     "shuffle_partitions": 200,
     "aqe_enabled": False,
+    "include_kafka": False,
 }
+
+# Kafka ADR (docs/architecture/kafka-streaming-infra.md) resource-ceiling
+# accounting mirror -- must stay in sync with app/config.py::KAFKA_MEMORY_GB.
+KAFKA_MEMORY_GB = 2
 
 MASTER_JSON_URL = "http://localhost:8080/json/"
 
@@ -90,6 +95,7 @@ def cmd_render(args: argparse.Namespace) -> int:
         "driver_memory_gb": args.driver_memory_gb,
         "shuffle_partitions": args.shuffle_partitions,
         "aqe_enabled": args.aqe_enabled,
+        "include_kafka": args.include_kafka,
         # Standalone Phase 0 CLI has no deployed-instance concept by default --
         # dev/empty (docs/architecture/public-deploy.md D4's public_origin
         # template var). --public-origin is an explicit opt-in override for
@@ -111,7 +117,8 @@ def cmd_render(args: argparse.Namespace) -> int:
     print(
         f"Config: workers={args.worker_count} cores={args.worker_cores} "
         f"mem={args.worker_memory_gb}GB driver_mem={args.driver_memory_gb}GB "
-        f"shuffle_partitions={args.shuffle_partitions} aqe={args.aqe_enabled}"
+        f"shuffle_partitions={args.shuffle_partitions} aqe={args.aqe_enabled} "
+        f"include_kafka={args.include_kafka}"
     )
     return 0
 
@@ -130,6 +137,11 @@ def _validate_ranges(args: argparse.Namespace) -> None:
         errors.append("shuffle_partitions must be a positive integer")
 
     total_gb = 1 + args.worker_count * args.worker_memory_gb + args.driver_memory_gb
+    if args.include_kafka:
+        # Kafka ADR (docs/architecture/kafka-streaming-infra.md) resource-ceiling
+        # accounting mirror -- see app/lifecycle/renderer.py::validate() for
+        # the app-path equivalent.
+        total_gb += KAFKA_MEMORY_GB
     if total_gb > 48:
         errors.append(
             f"requested config totals ~{total_gb}GB, exceeding the 48GB sanity "
@@ -325,6 +337,18 @@ def build_parser() -> argparse.ArgumentParser:
     render_p.add_argument("--driver-memory-gb", dest="driver_memory_gb", type=int, default=DEFAULTS["driver_memory_gb"])
     render_p.add_argument("--shuffle-partitions", dest="shuffle_partitions", type=int, default=DEFAULTS["shuffle_partitions"])
     render_p.add_argument("--aqe", dest="aqe_enabled", action="store_true", default=DEFAULTS["aqe_enabled"])
+    render_p.add_argument(
+        "--include-kafka",
+        dest="include_kafka",
+        action="store_true",
+        default=DEFAULTS["include_kafka"],
+        help=(
+            "Render the KRaft Kafka broker service (docs/architecture/"
+            "kafka-streaming-infra.md D1). Off by default -- this standalone "
+            "CLI mirror of the app-driven include_kafka=topic.requires_kafka "
+            "flag for manual/scripted renders."
+        ),
+    )
     render_p.add_argument(
         "--public-origin",
         dest="public_origin",

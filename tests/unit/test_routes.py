@@ -132,6 +132,62 @@ class TestSpawnValid:
         mock_spawn.assert_awaited_once()
 
 
+class TestSpawnThreadsIncludeKafkaFromTopicManifest:
+    """docs/architecture/kafka-streaming-infra.md D1: spawn_cluster() sets
+    `include_kafka=topic.requires_kafka` on the ClusterParams it hands to
+    manager.spawn() -- it is not a form field, so this must come from the
+    loaded Topic, not from the request body. Verified by inspecting the
+    actual ClusterParams manager.spawn() was called with, for both a
+    non-streaming topic (include_kafka False, R-K1) and a streaming one
+    (include_kafka True) via a synthetic manifest (no shipped topic
+    currently sets requires_kafka: true)."""
+
+    def test_non_streaming_topic_threads_include_kafka_false(self, monkeypatch):
+        ready_status = _status(ClusterState.READY, message="READY", alive_workers=3)
+        mock_spawn = AsyncMock(return_value=SpawnOutcome(ok=True, status=ready_status))
+        monkeypatch.setattr(topics_module.manager, "spawn", mock_spawn)
+        monkeypatch.setattr(topics_module.manager, "status", lambda: ready_status)
+
+        resp = client.post(
+            "/topics/partitioning-shuffle/spawn",
+            data={"worker_count": 3, "worker_cores": 2, "worker_memory_gb": 4, "shuffle_partitions": 200},
+        )
+
+        assert resp.status_code == 200
+        mock_spawn.assert_awaited_once()
+        params_arg = mock_spawn.await_args.args[0]
+        assert params_arg.include_kafka is False
+
+    def test_streaming_topic_threads_include_kafka_true(self, tmp_path, monkeypatch):
+        topic_dir = tmp_path / "streaming-topic"
+        topic_dir.mkdir()
+        (topic_dir / "manifest.yaml").write_text(
+            yaml.dump({
+                "id": "streaming-topic", "title": "Streaming Topic", "content": "concept.md",
+                "notebook": "notebook.ipynb", "requires_kafka": True,
+            }),
+            encoding="utf-8",
+        )
+        (topic_dir / "concept.md").write_text("# ok\n\n## What it is\n\nblurb.\n", encoding="utf-8")
+        (topic_dir / "notebook.ipynb").write_text("{}", encoding="utf-8")
+
+        ready_status = _status(ClusterState.READY, message="READY", alive_workers=3)
+        mock_spawn = AsyncMock(return_value=SpawnOutcome(ok=True, status=ready_status))
+        monkeypatch.setattr(topics_module.manager, "spawn", mock_spawn)
+        monkeypatch.setattr(topics_module.manager, "status", lambda: ready_status)
+
+        with patch.object(config, "CONTENT_DIR", tmp_path):
+            resp = client.post(
+                "/topics/streaming-topic/spawn",
+                data={"worker_count": 3, "worker_cores": 2, "worker_memory_gb": 4, "shuffle_partitions": 200},
+            )
+
+        assert resp.status_code == 200
+        mock_spawn.assert_awaited_once()
+        params_arg = mock_spawn.await_args.args[0]
+        assert params_arg.include_kafka is True
+
+
 class TestSpawnInvalidParams:
     def test_out_of_range_worker_count_reaches_manager_and_is_cleanly_rejected(self, monkeypatch):
         """The route does NOT pre-validate -- it always calls manager.spawn(),

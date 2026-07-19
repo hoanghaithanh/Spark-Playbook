@@ -87,12 +87,22 @@ advertising the address its client type can actually reach:
   **producer** when run via `docker exec` in the driver (D5). Resolved by container DNS, exactly as
   `spark://spark-master:7077` is.
 - **`PLAINTEXT_HOST` on `:29092` in-container, published to `127.0.0.1:9092` on the host, advertised
-  as `localhost:9092`** — the host listener, so `produce.py` can also run from a **host shell**
+  as `127.0.0.1:9092`** — the host listener, so `produce.py` can also run from a **host shell**
   outside Docker (human-confirmed requirement, OQ-1 resolved 2026-07-19). The two listeners must be on
   *distinct in-container ports* under distinct names (Kafka rejects two listeners on one port), and
   each advertised address must be the one its own client can reach — an in-cluster client handed
-  `localhost:9092` would dial its own container, and a host client handed `kafka:9092` couldn't resolve
-  it. This is the well-known dual-listener KRaft idiom, not a bespoke scheme.
+  `127.0.0.1:9092` would dial its own container (or fail outright), and a host client handed
+  `kafka:9092` couldn't resolve it. This is the well-known dual-listener KRaft idiom, not a bespoke
+  scheme.
+  **Implementation deviation (127.0.0.1 vs the `localhost` drafted below):** Kafka's client protocol is
+  two-hop — the client bootstraps, then reconnects to whatever address the broker's metadata response
+  advertises for that listener. `produce.py`'s host-run default was fixed to `127.0.0.1:9092` (D5)
+  because `localhost` resolves IPv6-first on the dev host and nothing is published on `::1`. If
+  `PLAINTEXT_HOST` still advertised `localhost:9092`, a host client's *bootstrap* would succeed via
+  `127.0.0.1` but the *second-hop* reconnect (using the advertised address verbatim) would hit the same
+  IPv6 dead end. Advertising `127.0.0.1:9092` instead keeps both hops consistent — the same fix pattern
+  as `produce.py`'s default, applied to the other half of the connection. This is R-K6's mismatch class,
+  caught in implementation rather than needing a live smoke test to surface it.
 
 This **honors PLAN.md §1's host-port-map row (line 195)** — which listed `9092` host-published for
 "Producer + driver" — scoped to **loopback (`127.0.0.1`) only**, matching the public-deploy D2
@@ -113,9 +123,20 @@ KRaft listener config (single combined broker+controller node, no ZooKeeper — 
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
       # Two data listeners (D3): PLAINTEXT for in-cluster (advertised as the DNS
       # name kafka:9092), PLAINTEXT_HOST for the loopback host publish (advertised
-      # as localhost:9092). Distinct in-container ports (9092 vs 29092) are required.
+      # as 127.0.0.1:9092). Distinct in-container ports (9092 vs 29092) are required.
+      #
+      # DEVIATION (implementation, not this draft): PLAINTEXT_HOST advertises
+      # 127.0.0.1:9092, not localhost:9092 as drafted below. Kafka's client
+      # protocol is two-hop -- bootstrap, then reconnect to whatever address
+      # this listener advertises for the actual produce/consume traffic. A
+      # host client bootstrapping via 127.0.0.1:9092 (required because
+      # "localhost" resolves IPv6-first with nothing published on ::1, see
+      # produce.py's docstring) that then got redirected to "localhost:9092"
+      # for the second hop would hit the exact same resolution failure one
+      # hop later -- textbook R-K6. Both hops must agree, hence 127.0.0.1 on
+      # both. Caught and fixed in the implementation, not discovered live.
       KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092,CONTROLLER://0.0.0.0:9093"
-      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9092"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,PLAINTEXT_HOST://127.0.0.1:9092"
       KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
@@ -161,9 +182,10 @@ rate-controlled CLI (mirroring the `tools/datagen/generate.py` two-layer pattern
 established), with a thin importable wrapper `driver/playbook/producer.py` the streaming notebook
 (#18) can call. It can run either **inside the driver container** (`docker exec ... python /workspace/tools/
 kafka_producer/produce.py --topic events --rate 100`, reaching `kafka:9092` by DNS) **or from a host
-shell** (`python tools/kafka_producer/produce.py --bootstrap localhost:9092 ...`, reaching the loopback
+shell** (`python tools/kafka_producer/produce.py --bootstrap 127.0.0.1:9092 ...`, reaching the loopback
 host publish, D3 / OQ-1). The bootstrap server is a `--bootstrap` flag defaulting to `kafka:9092` for
-the common in-driver case; host runs pass `localhost:9092`. A host run needs `kafka-python` installed
+the common in-driver case; host runs pass `127.0.0.1:9092` (not `localhost:9092` — see D3's
+implementation-deviation note and R-K6). A host run needs `kafka-python` installed
 on the host (`pip install kafka-python`); the in-driver run gets it from the baked image (D4).
 
 Scope and shape (production-adjacent care, since #18 depends on it and it must survive a
@@ -293,15 +315,15 @@ compose/templates/docker-compose.yml.j2
 │  spark-master  spark-worker-1..N  spark-driver (Jupyter, /workspace mount)     │
 │                                                                                 │
 │  kafka (spark-kafka)                                                            │
-│    listener PLAINTEXT      → advertised kafka:9092      (in-cluster, D3) ──┐     │
-│    listener PLAINTEXT_HOST → advertised localhost:9092  (host publish) ──┐ │     │
+│    listener PLAINTEXT      → advertised kafka:9092       (in-cluster, D3) ──┐     │
+│    listener PLAINTEXT_HOST → advertised 127.0.0.1:9092   (host publish) ──┐ │     │
 │        ▲ produce (in driver)                        ▲ readStream         │ │     │
 │  tools/kafka_producer/produce.py ──► kafka:9092 ◄── Spark driver ────────┘ │     │
 │        (baked kafka-python)              (baked spark-sql-kafka jar, D4)    │     │
 └──────────────────────────────────────────────────────────────────────────┼──────┘
               host loopback publish  127.0.0.1:9092 → container :29092 ──────┘
                      ▲
-       produce.py --bootstrap localhost:9092   (host shell, OQ-1 resolved)
+       produce.py --bootstrap 127.0.0.1:9092   (host shell, OQ-1 resolved; both hops now agree)
         ▲
    #38 ownership guard + single-slot down/up already cover the whole project (D2)
 ```
@@ -319,7 +341,7 @@ compose/templates/docker-compose.yml.j2
   `render()` context key.
 - `app/web/routes/topics.py::spawn_cluster` — set `include_kafka=topic.requires_kafka` on the params.
 - `tools/kafka_producer/produce.py` (NEW; `--bootstrap` defaults to `kafka:9092`, host runs pass
-  `localhost:9092`, OQ-1) + `driver/playbook/producer.py` (NEW thin wrapper) +
+  `127.0.0.1:9092`, OQ-1/R-K6) + `driver/playbook/producer.py` (NEW thin wrapper) +
   `tools/kafka_producer/README.md`.
 - `content/structured-streaming/manifest.yaml` — created by #18, not here; #50 only guarantees
   `requires_kafka: true` will flip Kafka on. **No** streaming notebook/concept is in #50's scope.
@@ -393,11 +415,20 @@ surfaced for a human preference rather than guessed silently. Neither blocks sta
   deliberately modest for a 4 GB/2-core worker (G1: a clear signal, not a stress test).
 - **R-K6 — Dual-listener advertised-address mismatch (OQ-1's cost).** The classic Kafka footgun: a
   client connects to the bootstrap port, then reconnects to whatever *advertised* address the broker
-  hands back. If `PLAINTEXT` advertised `localhost:9092` (or the two listeners shared an in-container
-  port), an in-cluster client would be redirected to its own container and hang, and vice versa for a
-  host client. *Noticed by:* a producer/`readStream` that connects then times out on the *second* hop
-  (metadata fetch succeeds, produce/consume stalls) — the tell-tale of a wrong advertised address, not
-  a down broker. *Mitigation:* D3 pins each advertised address to the reachable-by-that-client value
-  (`kafka:9092` for `PLAINTEXT`, `localhost:9092` for `PLAINTEXT_HOST`) on distinct in-container ports
-  (9092 vs 29092); a smoke check from both a `docker exec` and a host shell (test-engineer) confirms
-  both paths before #18 builds on them.
+  hands back. If `PLAINTEXT` advertised a container-unreachable address (or the two listeners shared an
+  in-container port), an in-cluster client would be redirected to its own container and hang, and vice
+  versa for a host client. *Noticed by:* a producer/`readStream` that connects then times out on the
+  *second* hop (metadata fetch succeeds, produce/consume stalls) — the tell-tale of a wrong advertised
+  address, not a down broker. *Mitigation:* D3 pins each advertised address to the reachable-by-that-
+  client value (`kafka:9092` for `PLAINTEXT`, `127.0.0.1:9092` for `PLAINTEXT_HOST`) on distinct
+  in-container ports (9092 vs 29092).
+  **Status update:** this exact instance — `PLAINTEXT_HOST` drafted as `localhost:9092`, which would
+  have reproduced the same IPv6-resolution failure `produce.py`'s `--bootstrap` default already worked
+  around, one hop later — was caught and fixed pre-emptively during implementation (D3's
+  implementation-deviation note), by reasoning through the two-hop protocol rather than needing a live
+  smoke test to discover it. This specific host-vs-container-DNS pairing is now correct-by-construction.
+  R-K6's *general* class of risk still stands, though: a future person editing
+  `KAFKA_ADVERTISED_LISTENERS` (e.g. changing a hostname, adding a listener) could reintroduce a
+  mismatch, and nothing in the template enforces the invariant beyond this comment — a live smoke check
+  from both a `docker exec` and a host shell (test-engineer) remains worthwhile before #18 builds on
+  this, and is the right way to catch any *future* regression in this config.

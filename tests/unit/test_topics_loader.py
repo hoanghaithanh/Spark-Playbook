@@ -340,6 +340,41 @@ class TestBlurb:
         assert blurb == "A bold word, some inline code, and an italic word."
 
 
+class TestRequiresKafkaField:
+    """docs/architecture/kafka-streaming-infra.md's claim: `requires_kafka:
+    bool` already existed pre-#50 (`app/topics/loader.py:233`) and all 14
+    shipped manifests set/default it to false. Individual topic classes
+    above already assert this piecemeal for a handful of topics -- this is
+    the one comprehensive regression guard across every shipped manifest,
+    the R-K1 mitigation's precondition (the streaming topic must be the
+    *only* one with requires_kafka: true)."""
+
+    def test_every_shipped_topic_defaults_requires_kafka_false(self):
+        topics = loader.list_topics()
+        assert len(topics) == 14, "expected 14 shipped topics as of the Kafka ADR"
+        for topic in topics:
+            assert topic.requires_kafka is False, f"{topic.id} unexpectedly requires_kafka=True"
+
+    def test_a_manifest_declaring_requires_kafka_true_is_honored(self, tmp_path):
+        """The flag isn't hardcoded false in the loader -- a manifest that
+        opts in is actually threaded through (the streaming topic #18
+        eventually ships depends on this)."""
+        topic_dir = tmp_path / "streaming-topic"
+        topic_dir.mkdir()
+        (topic_dir / "manifest.yaml").write_text(
+            yaml.dump({"id": "streaming-topic", "title": "Streaming Topic", "content": "concept.md",
+                       "notebook": "notebook.ipynb", "requires_kafka": True}),
+            encoding="utf-8",
+        )
+        (topic_dir / "concept.md").write_text("# ok", encoding="utf-8")
+        (topic_dir / "notebook.ipynb").write_text("{}", encoding="utf-8")
+
+        with patch.object(config, "CONTENT_DIR", tmp_path):
+            topic = loader.load_topic("streaming-topic")
+
+        assert topic.requires_kafka is True
+
+
 class TestMissingTopicFailsClearly:
     def test_nonexistent_topic_id_raises(self):
         with pytest.raises(loader.TopicNotFoundError):

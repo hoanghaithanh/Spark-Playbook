@@ -185,6 +185,13 @@ SHUFFLE_PARTITIONS_RANGE = (1, 300)
 RESOURCE_CEILING_GB = 32
 MASTER_MEMORY_GB = 1
 
+# Kafka ADR (docs/architecture/kafka-streaming-infra.md) resource-ceiling
+# accounting: conservative reservation added to the ceiling total when a
+# streaming topic's `include_kafka` flag is set. The broker's actual heap is
+# capped far lower (KAFKA_HEAP_OPTS 512MB in the compose template) -- this is
+# a deliberate margin (JVM off-heap, page cache), not a hard requirement.
+KAFKA_MEMORY_GB = 2
+
 # Readiness wait bounds (PLAN.md §2).
 READY_POLL_INTERVAL_S = 2
 READY_TIMEOUT_DEFAULT_S = 60

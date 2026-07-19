@@ -4,9 +4,11 @@
 # selected purely by the container `command` in docker-compose.yml.j2 — this image
 # adds nothing role-specific.
 #
-# Phase 0 scope only: JupyterLab + PyArrow so notebooks can open and run PySpark.
+# Phase 0 scope: JupyterLab + PyArrow so notebooks can open and run PySpark.
+# Phase 3 (docs/architecture/kafka-streaming-infra.md D4) adds the Kafka SQL
+# connector jars + kafka-python, baked at build time (no runtime --packages
+# fetch) so every spawn is deterministic and offline-safe.
 # Deliberately NOT included yet (later phases, per PLAN.md §4/§5):
-#   - Kafka SQL connector jars (Phase 3)
 #   - numpy/faker for tools/datagen (Phase 0 backlog item, but a separate pass)
 #   - driver/playbook helper package (mounted as a volume later, not baked into the image)
 #
@@ -33,6 +35,38 @@ RUN pip install --no-cache-dir \
 # Shared scratch space for annotation dumps (mounted as a volume in compose; the
 # directory is created here so it exists even before the first bind mount).
 RUN mkdir -p /shared && chmod 777 /shared
+
+# --- Kafka SQL connector (docs/architecture/kafka-streaming-infra.md D4) ---
+#
+# Baked at build time, not fetched via `spark.jars.packages` at runtime: the
+# connector is inert unless a query actually reads/writes Kafka, so this costs
+# a few MB of image size and nothing at runtime for the 13/14 non-streaming
+# topics, while making every spawn deterministic and offline-safe.
+#
+# Version pin (R-K3): every jar below must match the base image's Spark
+# version (4.0.3, pinned at the `FROM` line above) exactly, or a version bump
+# here without a matching bump there risks a ClassNotFound/version-mismatch on
+# readStream. kafka-clients/commons-pool2/scala-parallel-collections versions
+# are copied from spark-sql-kafka-0-10_2.13:4.0.3's own published POM
+# (repo1.maven.org), not guessed -- re-check that POM's <dependencies> when
+# bumping the Spark version.
+RUN set -eux; \
+    JAR_DIR=/opt/spark/jars; \
+    BASE=https://repo1.maven.org/maven2; \
+    curl -fL -o "$JAR_DIR/spark-sql-kafka-0-10_2.13-4.0.3.jar" \
+        "$BASE/org/apache/spark/spark-sql-kafka-0-10_2.13/4.0.3/spark-sql-kafka-0-10_2.13-4.0.3.jar"; \
+    curl -fL -o "$JAR_DIR/spark-token-provider-kafka-0-10_2.13-4.0.3.jar" \
+        "$BASE/org/apache/spark/spark-token-provider-kafka-0-10_2.13/4.0.3/spark-token-provider-kafka-0-10_2.13-4.0.3.jar"; \
+    curl -fL -o "$JAR_DIR/kafka-clients-3.9.1.jar" \
+        "$BASE/org/apache/kafka/kafka-clients/3.9.1/kafka-clients-3.9.1.jar"; \
+    curl -fL -o "$JAR_DIR/commons-pool2-2.12.0.jar" \
+        "$BASE/org/apache/commons/commons-pool2/2.12.0/commons-pool2-2.12.0.jar"; \
+    curl -fL -o "$JAR_DIR/scala-parallel-collections_2.13-1.2.0.jar" \
+        "$BASE/org/scala-lang/modules/scala-parallel-collections_2.13/1.2.0/scala-parallel-collections_2.13-1.2.0.jar"
+
+# kafka-python for the synthetic producer (D4/D5) -- pure-Python, no native
+# build deps, so it layers cleanly next to the JupyterLab install above.
+RUN pip install --no-cache-dir kafka-python==2.0.2
 
 WORKDIR /opt/spark/work-dir
 
