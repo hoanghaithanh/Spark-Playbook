@@ -5,8 +5,17 @@ sub-cadence tick, not every 2s base cycle.
 
 `kafka_stats`'s shellout functions are mocked at their module boundary
 (mirrors `test_collector.py`'s convention for `docker_stats`/`app_client`).
+
+Issue #57 finding 1: the sub-cadence CLI pull now runs as a detached
+`asyncio.create_task` instead of being awaited inline in `collect_once()`
+(so the base-cadence broadcast never blocks on it) -- `_await_kafka_refresh`
+below explicitly awaits that background task where a test needs the CLI
+data it produces, mirroring how the real event loop eventually gets around
+to running it.
 """
 from __future__ import annotations
+
+import asyncio
 
 import pytest
 
@@ -16,6 +25,7 @@ from app.lifecycle.renderer import ClusterParams
 from app.monitoring import docker_stats, kafka_stats
 from app.monitoring.collector import DashboardCollector
 from app.monitoring.docker_stats import ContainerStat
+from app.monitoring.model import KafkaSnapshot
 from app.spark_api import app_client
 
 
@@ -74,6 +84,15 @@ async def _async_none():
     return None
 
 
+async def _await_kafka_refresh(collector: DashboardCollector) -> None:
+    """Lets a `collect_once()`-triggered background CLI refresh (issue #57
+    finding 1) actually run and land in `collector._latest_kafka_cli` --
+    `collect_once()` itself only schedules it, it doesn't await it."""
+    task = collector._kafka_refresh_task
+    if task is not None:
+        await task
+
+
 def _fake_kafka_cli_factory(calls: list):
     """Returns a `find_live_broker` stand-in that records each call and
     returns the first broker as 'live', plus fetch_* stubs returning empty
@@ -109,7 +128,10 @@ class TestKafkaSpawnPopulatesSnapshot:
         assert snapshot.kafka is not None
         assert snapshot.kafka.brokers_online == 2
         assert snapshot.kafka.brokers_total == 3
-        assert {b.container_name for b in snapshot.kafka.brokers} == {"spark-kafka-1", "spark-kafka-2"}
+        assert {b.container_name for b in snapshot.kafka.brokers} == {
+            "spark-kafka-1", "spark-kafka-2", "spark-kafka-3",
+        }
+        await _await_kafka_refresh(fresh_collector)
         assert calls == [["spark-kafka-1", "spark-kafka-2"]]
 
     @pytest.mark.asyncio
@@ -134,6 +156,14 @@ class TestKafkaSpawnPopulatesSnapshot:
         snapshot = await fresh_collector.collect_once()
 
         assert snapshot.kafka.brokers_online == 2
+        # Issue #57 finding 2: broker 1 (missing from `docker stats`, i.e.
+        # killed) still gets a row, marked offline -- not silently dropped.
+        broker_1 = next(b for b in snapshot.kafka.brokers if b.container_name == "spark-kafka-1")
+        assert broker_1.online is False
+        broker_2 = next(b for b in snapshot.kafka.brokers if b.container_name == "spark-kafka-2")
+        assert broker_2.online is True
+
+        await _await_kafka_refresh(fresh_collector)
         assert calls == [["spark-kafka-2", "spark-kafka-3"]], (
             "collector must try whichever brokers are actually live, in order, "
             "not assume spark-kafka-1"
@@ -166,12 +196,51 @@ class TestKafkaSubCadence:
         monkeypatch.setattr(kafka_stats, "fetch_log_dirs", lambda c, timeout_s=8.0: _async({}))
         _make_ready(kafka_broker_count=1)
 
-        # Cycle 1 (first ever cycle) always refreshes (no prior snapshot to reuse).
+        # Cycle 1 (first ever cycle) always refreshes (no prior snapshot to
+        # reuse) -- await the detached refresh task so it actually lands in
+        # `_latest_kafka_cli` before cycle 2's due-for-refresh check runs.
         await fresh_collector.collect_once()
+        await _await_kafka_refresh(fresh_collector)
         assert len(calls) == 1
-        # Cycle 2: not on the sub-cadence tick -> reuses last snapshot, no new call.
+        cycle_1_task = fresh_collector._kafka_refresh_task
+        # Cycle 2: not on the sub-cadence tick -> reuses last cached CLI
+        # result, no new task scheduled (still the same completed task object).
         await fresh_collector.collect_once()
+        assert fresh_collector._kafka_refresh_task is cycle_1_task
         assert len(calls) == 1
-        # Cycle 3: hits the sub-cadence tick (3rd cycle) -> refreshes again.
+        # Cycle 3: hits the sub-cadence tick (3rd cycle) -> schedules and runs
+        # a new refresh.
         await fresh_collector.collect_once()
+        await _await_kafka_refresh(fresh_collector)
         assert len(calls) == 2
+
+    @pytest.mark.asyncio
+    async def test_collect_once_does_not_block_on_an_in_flight_refresh(self, fresh_collector, monkeypatch):
+        """Issue #57 finding 1: a slow CLI pull must not stall `collect_once()`
+        (and therefore the whole SSE broadcast, since Overview/Job/Node grids
+        are built in the same call) -- it now only schedules the refresh as a
+        background task instead of awaiting it inline."""
+        async def _fake_sample(cpu_limits, timeout_s=3.0):
+            return [_stat("spark-kafka-1")]
+
+        monkeypatch.setattr(docker_stats, "sample", _fake_sample)
+
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def _slow_refresh_kafka_cli(self, kafka_names):
+            started.set()
+            await release.wait()
+            return KafkaSnapshot(running=True)
+
+        monkeypatch.setattr(DashboardCollector, "_refresh_kafka_cli", _slow_refresh_kafka_cli)
+        _make_ready(kafka_broker_count=1)
+
+        snapshot = await asyncio.wait_for(fresh_collector.collect_once(), timeout=1.0)
+
+        assert snapshot.kafka is not None, "collect_once() must return promptly, not hang on the CLI pull"
+        assert started.is_set(), "the refresh should have been scheduled"
+        assert not fresh_collector._kafka_refresh_task.done(), "the refresh must still be in flight"
+
+        release.set()
+        await fresh_collector._kafka_refresh_task

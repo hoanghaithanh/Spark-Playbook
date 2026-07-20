@@ -249,6 +249,13 @@ class DashboardCollector:
         # Kafka observability sub-cadence state (ADR D-MBK5).
         self._kafka_cycle_count: int = 0
         self._latest_kafka: Optional[KafkaSnapshot] = None
+        # Issue #57 finding 1: the raw CLI-derived snapshot is now cached
+        # separately from `_latest_kafka` (the full assembled broadcast
+        # snapshot) so `_build_kafka` can read "whatever the last completed
+        # refresh produced" without awaiting an in-flight one -- decoupling
+        # the sub-cadence refresh from the base-cadence broadcast.
+        self._latest_kafka_cli: Optional[KafkaSnapshot] = None
+        self._kafka_refresh_task: Optional[asyncio.Task] = None
         self._kafka_partitions_led: Dict[int, int] = {}
         self._prev_kafka_offsets: Dict[Tuple[str, int], int] = {}
         self._prev_kafka_offsets_ts: Optional[float] = None
@@ -335,9 +342,22 @@ class DashboardCollector:
         self._history = {}
         self._kafka_cycle_count = 0
         self._latest_kafka = None
+        self._latest_kafka_cli = None
+        self._cancel_kafka_refresh()
         self._kafka_partitions_led = {}
         self._prev_kafka_offsets = {}
         self._prev_kafka_offsets_ts = None
+
+    def _cancel_kafka_refresh(self) -> None:
+        """Issue #57 finding 1: a background sub-cadence refresh (started by
+        `_build_kafka`) must not outlive a cluster teardown / `_reset_deltas()`
+        mid-refresh -- cancel it cleanly (mirrors `unsubscribe()`'s
+        `self._task.cancel()` pattern for the outer collector loop; the
+        cancelled `docker exec` child is reaped by `kafka_stats._run`'s own
+        `CancelledError` handling, issue #18)."""
+        if self._kafka_refresh_task is not None and not self._kafka_refresh_task.done():
+            self._kafka_refresh_task.cancel()
+        self._kafka_refresh_task = None
 
     def inactive_snapshot(self) -> Snapshot:
         return Snapshot(cluster_active=False, has_job=False, now_label=_now_label())
@@ -696,17 +716,25 @@ class DashboardCollector:
     ) -> Optional[KafkaSnapshot]:
         """Two cadences, one cycle: broker CPU/RAM/disk/net are rebuilt every
         call from this cycle's already-fetched `docker stats` batch (zero
-        added cost); the heavier `docker exec` CLI shellouts only run every
-        `config.KAFKA_COLLECTOR_SUBCADENCE_CYCLES`th call, reusing the last
-        `KafkaSnapshot`'s CLI-derived fields between refreshes. Returns None
-        (no shellouts at all) when no `spark-kafka-*` container is in this
-        cycle's stats -- a non-Kafka spawn never touches Kafka tooling."""
+        added cost). The heavier `docker exec` CLI shellouts are only
+        *kicked off* every `config.KAFKA_COLLECTOR_SUBCADENCE_CYCLES`th call,
+        as a detached background task (issue #57 finding 1) -- this call
+        never awaits that pull, it just reads whatever `self._latest_kafka_cli`
+        currently holds (the last *completed* refresh), so the base 2s
+        collector cadence (and the whole SSE broadcast, which is built and
+        sent in the same `collect_once()` call) keeps flowing independently
+        of the ~12s CLI pull, matching the ADR's "two cadences, one cycle"
+        framing. Returns None (no shellouts at all) when no `spark-kafka-*`
+        container is in this cycle's stats -- a non-Kafka spawn never touches
+        Kafka tooling."""
         kafka_names = sorted(
             (name for name in stats_by_name if _kafka_node_id(name) is not None),
             key=_kafka_node_id,
         )
         if not kafka_names:
             self._latest_kafka = None
+            self._latest_kafka_cli = None
+            self._cancel_kafka_refresh()
             self._kafka_cycle_count = 0
             self._prev_kafka_offsets = {}
             self._prev_kafka_offsets_ts = None
@@ -714,13 +742,16 @@ class DashboardCollector:
 
         self._kafka_cycle_count += 1
         due_for_refresh = (
-            self._latest_kafka is None
+            self._latest_kafka_cli is None
             or self._kafka_cycle_count % config.KAFKA_COLLECTOR_SUBCADENCE_CYCLES == 0
         )
-        cli = await self._refresh_kafka_cli(kafka_names) if due_for_refresh else self._latest_kafka
+        if due_for_refresh and (self._kafka_refresh_task is None or self._kafka_refresh_task.done()):
+            self._kafka_refresh_task = asyncio.create_task(self._refresh_kafka_cli(kafka_names))
+            self._kafka_refresh_task.add_done_callback(self._on_kafka_refresh_done)
+        cli = self._latest_kafka_cli
 
         brokers_total = len(_expected_kafka_containers(params))
-        brokers = self._build_kafka_brokers(kafka_names, stats_by_name, elapsed_s, cli)
+        brokers = self._build_kafka_brokers(params, stats_by_name, elapsed_s, cli)
 
         kafka = KafkaSnapshot(
             running=True,
@@ -740,6 +771,20 @@ class DashboardCollector:
         )
         self._latest_kafka = kafka
         return kafka
+
+    def _on_kafka_refresh_done(self, task: asyncio.Task) -> None:
+        """Completion callback for the detached sub-cadence refresh task
+        (issue #57 finding 1). Runs outside `collect_once()`'s call stack, so
+        it only ever updates the cache the *next* cycle reads -- never blocks
+        anything. A cancelled task (cluster teardown mid-refresh, see
+        `_cancel_kafka_refresh`) is expected and silently dropped."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.exception("Kafka CLI refresh failed; will retry next sub-cadence tick.", exc_info=exc)
+            return
+        self._latest_kafka_cli = task.result()
 
     async def _refresh_kafka_cli(self, kafka_names: List[str]) -> KafkaSnapshot:
         """The heavier sub-cadence pull: find a live broker (fallback order
@@ -862,17 +907,25 @@ class DashboardCollector:
 
     def _build_kafka_brokers(
         self,
-        kafka_names: List[str],
+        params: ClusterParams,
         stats_by_name: Dict[str, ContainerStat],
         elapsed_s: Optional[float],
         cli: Optional[KafkaSnapshot],
     ) -> List[KafkaBrokerStat]:
         """Broker CPU/RAM/disk/net rebuilt fresh every cycle from the
         already-fetched `docker stats` batch -- reused at zero added cost,
-        same delta idiom `_build_nodes` uses for disk/net (ADR D-MBK5)."""
+        same delta idiom `_build_nodes` uses for disk/net (ADR D-MBK5).
+
+        Issue #57 finding 2: iterates *all* configured brokers
+        (`_expected_kafka_containers`, ADR D-MBK7), not just the ones present
+        in this cycle's `stats_by_name` -- a broker missing from `docker
+        stats` (killed) still gets a row here, with `online=False` and its
+        stat fields at their `"—"`/`None` defaults, same convention
+        `_build_nodes` already uses for `NodeStat.available=False`, instead
+        of silently vanishing from the list."""
         controller_id = cli.active_controller_id if cli else None
         brokers: List[KafkaBrokerStat] = []
-        for name in kafka_names:
+        for name in _expected_kafka_containers(params):
             node_id = _kafka_node_id(name)
             stat = stats_by_name.get(name)
             prev = self._prev_containers.get(name)
