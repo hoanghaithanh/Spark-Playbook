@@ -49,6 +49,7 @@ Ordered top-to-bottom by priority. Entries move out of this list into a sprint m
 | 37 | Public deploy: VM/firewall/certbot prerequisites wired into `deploy.sh` (idempotent) | S | plan: `docs/requirements/public-deploy.md` | Done (Sprint 7) — merged `0c44b5c`. GitHub issue [#43](https://github.com/hoanghaithanh/Spark-Playbook/issues/43) closed. Idempotency and the certbot fail-loud path were read-through/statically confirmed only (`docs/acceptance/public-deploy.md` Part B §1) — live-VM acceptance waived, see row #33 caveat. |
 | 38 | Open-source hygiene: LICENSE, secret/history final check, gitignore deploy artifacts, README "Deploy (single-user, remote)" section | S | plan: `docs/requirements/public-deploy.md` | Done (Sprint 7) — merged `0c44b5c`. GitHub issue [#44](https://github.com/hoanghaithanh/Spark-Playbook/issues/44) closed. LICENSE, `.gitignore` coverage, and README deploy docs verified directly (`docs/acceptance/public-deploy.md` A6). Full git-history secret scan explicitly routed to security-auditor per that report, not independently re-verified by project-manager. |
 | 39 | Public deploy: driver Spark UI deep links ("Open in Spark UI", dashboard "Driver UI" link, annotation Reveal stage links) are unreachable through the public HTTPS stack — no nginx route exposes the driver's `:4040`-`:4042` range past the `22/80/443` firewall restriction (US-PD5); deliberately left out of scope during the 2026-07-18 link-fix session since fixing it means widening the public port surface, a separate scope decision needing an architect look | S | [docs/architecture/public-deploy.md](architecture/public-deploy.md) (Addendum A2) | Backlog — new tech-debt item, found 2026-07-18. GitHub issue [#48](https://github.com/hoanghaithanh/Spark-Playbook/issues/48) filed, unmilestoned. `deploy-lan` (LAN-only stack) is unaffected — already fixed there via `DRIVER_UI_HOST=${LAN_IP}`. |
+| 40 | Multi-broker Kafka cluster & monitor — 5 sub-stories: (a) user-configurable "Kafka" section in the cluster-config drawer (1-5 brokers, default 3, RF=3/min-isr=2, folded into the existing single Spawn/Teardown action), (b) Kafka observability data layer (CLI-shellout, not KafkaAdminClient — see #50's ADR dead end), (c) JMX exporter for heap/GC and produce/consume latency plus per-broker idle-ratio metrics, (d) 4th tab in the existing Cluster Monitor panel built against a specific design mockup, (e) broker-kill fault-tolerance demo (ISR shrink/leader re-election) | L | none yet — plan only: `C:\Users\hoang\.claude\plans\for-18-i-want-lazy-candle.md` | Backlog — pending requirements-analyst formalization. Filed under release milestone `v1.2 — Multi-Broker Kafka Cluster & Monitor` (GitHub milestone [#15](https://github.com/hoanghaithanh/Spark-Playbook/milestone/15)), not yet pulled into a sprint. **Sequencing note:** must land before v1.1's still-unstarted sub-stories (#52-#55, row #18) — those build the streaming producer/job/dashboard against whatever broker topology is running, so they should target the multi-broker cluster rather than inherit the single-node one from #50 (row #19). Mirrors how row #19 was itself a prerequisite consumed by row #18. |
 
 ## Confirmed sprint plan (2026-07-16, human-approved; Sprint 4 milestoned 2026-07-16)
 
@@ -341,3 +342,52 @@ Sprint 6, GitHub issue #36) — both describe the same unified-memory-manager ev
 scope, and #32 already shipped it with human sign-off. Row #17's status note above has been updated
 to surface this explicitly so it isn't silently pulled into a future sprint as live scope; retiring
 or re-scoping the row is left for a dedicated cleanup pass rather than decided here.
+
+## New release milestone: v1.2 — Multi-Broker Kafka Cluster & Monitor (2026-07-19)
+
+A new body of work — turning the single-node Kafka broker shipped in #50 (backlog row #19) into a
+user-configurable multi-broker KRaft cluster, plus the observability layer needed to actually see it
+work — was approved by the human on 2026-07-19, per the full plan at
+`C:\Users\hoang\.claude\plans\for-18-i-want-lazy-candle.md`: 1-5 user-configurable brokers (default
+3, RF=3/min-insync-replicas 2), a new "Kafka" section in the existing cluster-config drawer (folded
+into the single Spawn/Teardown action, same UI pattern as the existing memory/shuffle-partition
+ranges), a new Kafka observability data layer (CLI-shellout, since KafkaAdminClient was tried and
+proven a dead end per #50's own ADR — `docs/architecture/kafka-streaming-infra.md`), a JMX exporter
+for heap/GC and produce/consume latency plus per-broker idle-ratio metrics, a 4th tab in the existing
+Cluster Monitor slide-in panel (built against a specific design mockup, alongside the existing
+per-node/task/ETA/skew tabs from backlog rows #9-#13), and a broker-kill fault-tolerance demo
+(kill one broker, observe ISR shrink/leader re-election, RF=3/min-isr=2 keeps the cluster serving) —
+the Kafka-cluster analog of row #30's worker-kill Spark fault-tolerance topic.
+
+**This explicitly reverses part of #50's shipped ADR** — Decision D1 in
+`docs/architecture/kafka-streaming-infra.md` deliberately made Kafka "not a user-facing toggle" for
+that story; broker count now becomes a user-facing config knob. That reversal is a scope decision the
+human made explicitly when approving this milestone, not an oversight of the earlier ADR.
+
+Same release-scale reasoning as `v1.0 — Public Deploy` and `v1.1 — Live Market Data Streaming`: this
+is multi-area work (compose/cluster-lifecycle, a new observability data layer, JMX/monitoring UI,
+fault-tolerance demo) different in character and size from a single curriculum sprint story, so it's
+filed as its own **release milestone**,
+[`v1.2 — Multi-Broker Kafka Cluster & Monitor`](https://github.com/hoanghaithanh/Spark-Playbook/milestone/15)
+(GitHub milestone #15), mirroring exactly how `v1.0` (milestone #8) and `v1.1` (milestone #13) were
+set up — including leaving it **empty for now**. The 5 sub-stories (a-e above) are **not filed as
+GitHub issues yet** — that's requirements-analyst's job next, followed by an architect design pass,
+same pipeline order as v1.0/v1.1's own release-milestone process. Tracked in the backlog table as new
+row #40 above.
+
+**Sequencing: BEFORE v1.1's remaining sub-stories.** v1.1 (milestone #13, backlog row #18) is
+unblocked but its 4 sub-story issues — [#52](https://github.com/hoanghaithanh/Spark-Playbook/issues/52),
+[#53](https://github.com/hoanghaithanh/Spark-Playbook/issues/53),
+[#54](https://github.com/hoanghaithanh/Spark-Playbook/issues/54),
+[#55](https://github.com/hoanghaithanh/Spark-Playbook/issues/55) — are all still unstarted (no
+development has begun on any of them). v1.2's multi-broker cluster is scoped to land **before** those
+sub-stories are picked up, since the producer/Spark job/dashboard they build should target the
+multi-broker topology rather than inherit the single-node broker from #50 and need rework later. This
+mirrors how row #19 (Kafka infra, Sprint 10) was itself a prerequisite consumed by row #18 (v1.1) —
+same "infra-before-the-thing-that-depends-on-it" sequencing, one level up.
+
+**Not pulled into any sprint yet.** Sprint 11 (GitHub milestone #14, 2026-07-27 – 2026-07-31, active)
+already has its sole story confirmed (#51, UDF vs pandas UDF, backlog row #16) — v1.2's sub-stories
+aren't ready to schedule regardless (no requirements/architect pass done yet), so there's no conflict
+with Sprint 11's existing scope. When the sub-stories are ready, that's a future sprint-planning
+checkpoint, same pattern as v1.0's and v1.1's issues later landing in dedicated sprints.
