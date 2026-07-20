@@ -37,6 +37,7 @@ def _panel_context(request: Request, topic: loader.Topic) -> dict:
         "worker_cores_range": config.WORKER_CORES_RANGE,
         "worker_memory_gb_range": config.WORKER_MEMORY_GB_RANGE,
         "shuffle_partitions_range": config.SHUFFLE_PARTITIONS_RANGE,
+        "kafka_broker_count_range": config.KAFKA_BROKER_COUNT_RANGE,
         "jupyter_url": config.JUPYTER_URL,
         "master_ui_url": config.MASTER_UI_URL,
         "is_ready": status.state.value == "ready",
@@ -85,6 +86,8 @@ async def spawn_cluster(
     worker_memory_gb: int = Form(...),
     shuffle_partitions: int = Form(...),
     aqe_enabled: bool = Form(False),
+    include_kafka: bool = Form(False),
+    kafka_broker_count: int = Form(config.DEFAULTS["kafka_broker_count"]),
 ) -> HTMLResponse:
     topic = loader.load_topic(topic_id)
     params = ClusterParams(
@@ -94,9 +97,12 @@ async def spawn_cluster(
         driver_memory_gb=config.DEFAULTS["driver_memory_gb"],
         shuffle_partitions=shuffle_partitions,
         aqe_enabled=aqe_enabled,
-        # Kafka ADR D1: not a form field -- driven by the topic manifest, not
-        # a user-facing toggle.
-        include_kafka=topic.requires_kafka,
+        # Multi-broker Kafka ADR (docs/architecture/multi-broker-kafka-cluster.md
+        # D-MBK1, supersedes #50's D1): read from the submitted form, not
+        # solely from topic.requires_kafka -- the manifest only pre-checks
+        # the drawer's default (see _panel_context).
+        include_kafka=include_kafka,
+        kafka_broker_count=kafka_broker_count,
     )
     # Bounded wait per PLAN.md §2: 60s default target, 90s hard cap for larger configs.
     timeout_s = config.READY_TIMEOUT_DEFAULT_S if worker_count <= 3 else config.READY_TIMEOUT_MAX_S

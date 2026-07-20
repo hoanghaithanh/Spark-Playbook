@@ -54,6 +54,10 @@ class ClusterDefaults:
     worker_memory_gb: int = config.DEFAULTS["worker_memory_gb"]
     shuffle_partitions: int = config.DEFAULTS["shuffle_partitions"]
     aqe_enabled: bool = config.DEFAULTS["aqe_enabled"]
+    # Multi-broker Kafka ADR (docs/architecture/multi-broker-kafka-cluster.md
+    # D-MBK1): optional per-topic suggested broker count, pre-populating the
+    # drawer's Kafka broker-count field (not a hard gate -- see Topic.requires_kafka).
+    kafka_broker_count: int = config.DEFAULTS["kafka_broker_count"]
 
 
 @dataclass
@@ -210,6 +214,7 @@ def load_topic(topic_id: str) -> Topic:
         worker_memory_gb=cd.get("worker_memory_gb", config.DEFAULTS["worker_memory_gb"]),
         shuffle_partitions=cd.get("shuffle_partitions", config.DEFAULTS["shuffle_partitions"]),
         aqe_enabled=cd.get("aqe_enabled", config.DEFAULTS["aqe_enabled"]),
+        kafka_broker_count=cd.get("kafka_broker_count", config.DEFAULTS["kafka_broker_count"]),
     )
 
     notebook_path = topic_dir / data.get("notebook", "notebook.ipynb")

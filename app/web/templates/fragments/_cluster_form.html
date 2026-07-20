@@ -43,6 +43,25 @@
     </label>
   </fieldset>
 
+  {# Multi-broker Kafka ADR (docs/architecture/multi-broker-kafka-cluster.md
+     D-MBK1, supersedes #50's D1 "not a user choice"): Kafka is now a drawer
+     section like any other cluster parameter. topic.requires_kafka only
+     pre-checks the box / pre-populates the broker count -- submitting the
+     form with it unchecked (or a different count) is honored, not overridden
+     by the manifest. #}
+  <fieldset>
+    <legend>Kafka</legend>
+    <label class="checkbox">
+      <input type="checkbox" name="include_kafka" value="true" {% if topic.requires_kafka %}checked{% endif %} />
+      Include Kafka
+    </label>
+    <label>
+      Kafka brokers ({{ kafka_broker_count_range[0] }}-{{ kafka_broker_count_range[1] }})
+      <input type="number" name="kafka_broker_count" min="{{ kafka_broker_count_range[0] }}"
+             max="{{ kafka_broker_count_range[1] }}" value="{{ defaults.kafka_broker_count }}" required />
+    </label>
+  </fieldset>
+
   <div class="actions">
     <button id="spawn-btn" type="submit">Spawn cluster</button>
     <span id="spawn-indicator" class="htmx-indicator">Spawning... this can take up to 90 seconds.</span>

@@ -63,10 +63,15 @@ DEFAULTS = {
     "shuffle_partitions": 200,
     "aqe_enabled": False,
     "include_kafka": False,
+    # Multi-broker Kafka ADR (docs/architecture/multi-broker-kafka-cluster.md
+    # D-MBK1): mirrors app/config.py::DEFAULTS["kafka_broker_count"].
+    "kafka_broker_count": 3,
 }
 
 # Kafka ADR (docs/architecture/kafka-streaming-infra.md) resource-ceiling
 # accounting mirror -- must stay in sync with app/config.py::KAFKA_MEMORY_GB.
+# Multi-broker Kafka ADR D-MBK4: now multiplied by kafka_broker_count, not
+# added flat -- see _validate_ranges below.
 KAFKA_MEMORY_GB = 2
 
 MASTER_JSON_URL = "http://localhost:8080/json/"
@@ -96,6 +101,7 @@ def cmd_render(args: argparse.Namespace) -> int:
         "shuffle_partitions": args.shuffle_partitions,
         "aqe_enabled": args.aqe_enabled,
         "include_kafka": args.include_kafka,
+        "kafka_broker_count": args.kafka_broker_count,
         # Standalone Phase 0 CLI has no deployed-instance concept by default --
         # dev/empty (docs/architecture/public-deploy.md D4's public_origin
         # template var). --public-origin is an explicit opt-in override for
@@ -118,7 +124,7 @@ def cmd_render(args: argparse.Namespace) -> int:
         f"Config: workers={args.worker_count} cores={args.worker_cores} "
         f"mem={args.worker_memory_gb}GB driver_mem={args.driver_memory_gb}GB "
         f"shuffle_partitions={args.shuffle_partitions} aqe={args.aqe_enabled} "
-        f"include_kafka={args.include_kafka}"
+        f"include_kafka={args.include_kafka} kafka_broker_count={args.kafka_broker_count}"
     )
     return 0
 
@@ -136,15 +142,23 @@ def _validate_ranges(args: argparse.Namespace) -> None:
     if args.shuffle_partitions <= 0:
         errors.append("shuffle_partitions must be a positive integer")
 
+    if args.include_kafka and not (1 <= args.kafka_broker_count <= 5):
+        errors.append("kafka_broker_count must be 1-5")
+
     total_gb = 1 + args.worker_count * args.worker_memory_gb + args.driver_memory_gb
     if args.include_kafka:
-        # Kafka ADR (docs/architecture/kafka-streaming-infra.md) resource-ceiling
-        # accounting mirror -- see app/lifecycle/renderer.py::validate() for
-        # the app-path equivalent.
-        total_gb += KAFKA_MEMORY_GB
-    if total_gb > 48:
+        # Multi-broker Kafka ADR (docs/architecture/multi-broker-kafka-cluster.md
+        # D-MBK4) resource-ceiling accounting mirror -- see
+        # app/lifecycle/renderer.py::validate() for the app-path equivalent.
+        total_gb += KAFKA_MEMORY_GB * args.kafka_broker_count
+    # RESOURCE_CEILING_GB reconciliation (D-MBK4 / OQ-MBK4, pre-existing
+    # drift flagged by the ADR): this hardcoded ceiling drifted from
+    # app/config.py::RESOURCE_CEILING_GB when issue #6 lowered the app path
+    # to 32GB but this standalone CLI mirror was never updated. Brought back
+    # in sync here rather than left divergent.
+    if total_gb > 32:
         errors.append(
-            f"requested config totals ~{total_gb}GB, exceeding the 48GB sanity "
+            f"requested config totals ~{total_gb}GB, exceeding the 32GB sanity "
             "ceiling (PLAN.md §2 resource-ceiling check)"
         )
 
@@ -347,6 +361,17 @@ def build_parser() -> argparse.ArgumentParser:
             "kafka-streaming-infra.md D1). Off by default -- this standalone "
             "CLI mirror of the app-driven include_kafka=topic.requires_kafka "
             "flag for manual/scripted renders."
+        ),
+    )
+    render_p.add_argument(
+        "--kafka-broker-count",
+        dest="kafka_broker_count",
+        type=int,
+        default=DEFAULTS["kafka_broker_count"],
+        help=(
+            "Number of Kafka brokers to render when --include-kafka is set "
+            "(1-5, default 3; docs/architecture/multi-broker-kafka-cluster.md "
+            "D-MBK1/D-MBK2). Ignored otherwise."
         ),
     )
     render_p.add_argument(

@@ -133,12 +133,19 @@ DEFAULTS = {
     "driver_memory_gb": 2,
     "shuffle_partitions": 200,
     "aqe_enabled": False,
+    # Multi-broker Kafka ADR (docs/architecture/multi-broker-kafka-cluster.md
+    # D-MBK1): user-facing drawer default, mirrors worker_count's pattern.
+    "kafka_broker_count": 3,
 }
 
 # Ranges (PLAN.md §2 / US-1.2).
 WORKER_COUNT_RANGE = (1, 5)
 WORKER_CORES_RANGE = (1, 4)
 WORKER_MEMORY_GB_RANGE = (1, 8)
+
+# Multi-broker Kafka ADR D-MBK4: broker count is a genuine user-facing range,
+# 1-5 brokers, mirroring WORKER_COUNT_RANGE's shape.
+KAFKA_BROKER_COUNT_RANGE = (1, 5)
 
 # Shuffle-partitions UI range (topic-shell redesign, US-SH2 -- settled
 # 2026-07-15). PLAN.md §2's underlying `shuffle_partitions` template variable
@@ -190,6 +197,10 @@ MASTER_MEMORY_GB = 1
 # streaming topic's `include_kafka` flag is set. The broker's actual heap is
 # capped far lower (KAFKA_HEAP_OPTS 512MB in the compose template) -- this is
 # a deliberate margin (JVM off-heap, page cache), not a hard requirement.
+#
+# Multi-broker Kafka ADR (docs/architecture/multi-broker-kafka-cluster.md
+# D-MBK4): this per-broker figure is now multiplied by kafka_broker_count in
+# renderer.validate() / compose/cli.py::_validate_ranges, not added flat.
 KAFKA_MEMORY_GB = 2
 
 # Readiness wait bounds (PLAN.md §2).
