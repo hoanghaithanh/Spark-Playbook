@@ -252,3 +252,28 @@ DASHBOARD_SKEW_MEDIAN_MULTIPLE = 1.5
 # the template (ADR D-C caveat: CPU% normalization needs the real limit).
 DASHBOARD_MASTER_CPU_CORES = 1.0
 DASHBOARD_DRIVER_CPU_CORES = 2.0
+
+# Kafka broker CPU limit (compose template's kafka service has no explicit
+# `deploy.resources.limits.cpus` override -- every broker runs uncapped in
+# the same 1-core-equivalent budget class as master, per D-MBK5's normalize-
+# against-1-core note).
+DASHBOARD_KAFKA_CPU_CORES = 1.0
+
+# Multi-broker Kafka ADR D-MBK5: heavier CLI shellouts run on a slower
+# sub-cadence than the base 2s collector cycle -- every Nth cycle, reusing
+# the last KafkaSnapshot between refreshes. Tunable (ponytail: widen if
+# concurrent JVM-startup CLI execs spike broker CPU, R-MBK3).
+#
+# DEVIATION FROM THE ADR (live-verified, issue #57): the ADR estimated a
+# concurrent (asyncio.gather) pull of ~7 kafka-*.sh CLI calls would take
+# "≈ the slowest single call (~2-3s wall clock)", supporting a 5-cycle
+# (~10s) default. Measured live against a real 3-broker spawn: a single
+# call takes ~1.8s, but 6 concurrent calls against the same 1-core-limited
+# broker container take ~12s -- essentially serialized, not parallel,
+# because the CLI tools are CPU-bound during JVM startup and the broker's
+# `deploy.resources.limits.cpus` caps it at 1 core (exactly R-MBK3's
+# flagged risk, confirmed rather than hypothetical). 10 cycles (~20s) gives
+# headroom above the measured ~12s pull duration; `collect_once()` blocks
+# for the pull's duration on a due-for-refresh cycle, so the cadence must
+# stay comfortably above it, not just above the ADR's optimistic estimate.
+KAFKA_COLLECTOR_SUBCADENCE_CYCLES = 10

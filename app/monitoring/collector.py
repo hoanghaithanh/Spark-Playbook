@@ -18,19 +18,25 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 from app import config
 from app.lifecycle.manager import ClusterState, manager
 from app.lifecycle.renderer import ClusterParams
-from app.monitoring import diagnostics, docker_stats, eta
+from app.monitoring import diagnostics, docker_stats, eta, kafka_stats
 from app.monitoring.docker_stats import ContainerStat
 from app.monitoring.model import (
+    ConsumerGroupRow,
     HistoryPoint,
     JobSummary,
+    KafkaBrokerStat,
+    KafkaSnapshot,
+    KafkaTopicRow,
     NodeStat,
+    PartitionLagRow,
     PartitionRow,
     SignalCard,
     Snapshot,
@@ -87,6 +93,21 @@ def _expected_containers(params: ClusterParams) -> List[str]:
     return names
 
 
+def _expected_kafka_containers(params: ClusterParams) -> List[str]:
+    """Deliberately separate from `_expected_containers()` (ADR D-MBK5):
+    that list feeds the Spark Overview/Node grids -- brokers live in the
+    Kafka tab instead."""
+    return [f"spark-kafka-{i}" for i in range(1, params.kafka_broker_count + 1)]
+
+
+_KAFKA_CONTAINER_RE = re.compile(r"^spark-kafka-(\d+)$")
+
+
+def _kafka_node_id(container_name: str) -> Optional[int]:
+    m = _KAFKA_CONTAINER_RE.match(container_name)
+    return int(m.group(1)) if m else None
+
+
 def _cpu_limits(params: ClusterParams) -> Dict[str, float]:
     limits = {
         "spark-master": config.DASHBOARD_MASTER_CPU_CORES,
@@ -94,6 +115,8 @@ def _cpu_limits(params: ClusterParams) -> Dict[str, float]:
     }
     for i in range(1, params.worker_count + 1):
         limits[f"spark-worker-{i}"] = float(params.worker_cores)
+    for name in _expected_kafka_containers(params):
+        limits[name] = config.DASHBOARD_KAFKA_CPU_CORES
     return limits
 
 
@@ -223,6 +246,13 @@ class DashboardCollector:
         self._prev_gc_ms: Dict[str, float] = {}
         self._prev_ts: Optional[float] = None
 
+        # Kafka observability sub-cadence state (ADR D-MBK5).
+        self._kafka_cycle_count: int = 0
+        self._latest_kafka: Optional[KafkaSnapshot] = None
+        self._kafka_partitions_led: Dict[int, int] = {}
+        self._prev_kafka_offsets: Dict[Tuple[str, int], int] = {}
+        self._prev_kafka_offsets_ts: Optional[float] = None
+
     # ------------------------------------------------------------------ #
     # subscription lifecycle (ADR D-B / R-Dash-3)
     # ------------------------------------------------------------------ #
@@ -303,6 +333,11 @@ class DashboardCollector:
         self._prev_gc_ms = {}
         self._prev_ts = None
         self._history = {}
+        self._kafka_cycle_count = 0
+        self._latest_kafka = None
+        self._kafka_partitions_led = {}
+        self._prev_kafka_offsets = {}
+        self._prev_kafka_offsets_ts = None
 
     def inactive_snapshot(self) -> Snapshot:
         return Snapshot(cluster_active=False, has_job=False, now_label=_now_label())
@@ -379,6 +414,12 @@ class DashboardCollector:
         nodes = self._build_nodes(
             params, stats_by_name, gc_by_host, partitions_by_node, elapsed_s, skew_reasons
         )
+
+        # Kafka observability layer (ADR D-MBK5) -- uses `self._prev_containers`
+        # (still last cycle's values here, before the reassignment below) for
+        # its own disk/net delta, the same pattern `_build_nodes` just used.
+        kafka_snapshot = await self._build_kafka(params, stats_by_name, elapsed_s)
+
         self._prev_containers = stats_by_name
 
         resource_samples = [
@@ -421,6 +462,7 @@ class DashboardCollector:
             partition_summary=_partition_summary(task_samples),
             signal_cards=signal_cards,
             has_alert=has_alert,
+            kafka=kafka_snapshot,
             alert_title=alert_title,
             alert_detail=alert_detail,
         )
@@ -644,6 +686,241 @@ class DashboardCollector:
 
             nodes.append(node)
         return nodes
+
+    # ------------------------------------------------------------------ #
+    # Kafka observability layer (ADR D-MBK5)
+    # ------------------------------------------------------------------ #
+
+    async def _build_kafka(
+        self, params: ClusterParams, stats_by_name: Dict[str, ContainerStat], elapsed_s: Optional[float]
+    ) -> Optional[KafkaSnapshot]:
+        """Two cadences, one cycle: broker CPU/RAM/disk/net are rebuilt every
+        call from this cycle's already-fetched `docker stats` batch (zero
+        added cost); the heavier `docker exec` CLI shellouts only run every
+        `config.KAFKA_COLLECTOR_SUBCADENCE_CYCLES`th call, reusing the last
+        `KafkaSnapshot`'s CLI-derived fields between refreshes. Returns None
+        (no shellouts at all) when no `spark-kafka-*` container is in this
+        cycle's stats -- a non-Kafka spawn never touches Kafka tooling."""
+        kafka_names = sorted(
+            (name for name in stats_by_name if _kafka_node_id(name) is not None),
+            key=_kafka_node_id,
+        )
+        if not kafka_names:
+            self._latest_kafka = None
+            self._kafka_cycle_count = 0
+            self._prev_kafka_offsets = {}
+            self._prev_kafka_offsets_ts = None
+            return None
+
+        self._kafka_cycle_count += 1
+        due_for_refresh = (
+            self._latest_kafka is None
+            or self._kafka_cycle_count % config.KAFKA_COLLECTOR_SUBCADENCE_CYCLES == 0
+        )
+        cli = await self._refresh_kafka_cli(kafka_names) if due_for_refresh else self._latest_kafka
+
+        brokers_total = len(_expected_kafka_containers(params))
+        brokers = self._build_kafka_brokers(kafka_names, stats_by_name, elapsed_s, cli)
+
+        kafka = KafkaSnapshot(
+            running=True,
+            brokers_online=len(kafka_names),
+            brokers_total=brokers_total,
+            under_replicated_count=cli.under_replicated_count if cli else 0,
+            active_controller_id=cli.active_controller_id if cli else None,
+            throughput_label=cli.throughput_label if cli else "—",
+            consumer_group_count=cli.consumer_group_count if cli else 0,
+            total_lag=cli.total_lag if cli else 0,
+            p99_latency_label="—",  # JMX-sourced (US-MBK3), not this sub-story
+            jmx_available=False,
+            brokers=brokers,
+            topics=cli.topics if cli else [],
+            consumer_groups=cli.consumer_groups if cli else [],
+            isr_shrink_events=[],  # ISR-diff tracking is US-MBK5 (#60)
+        )
+        self._latest_kafka = kafka
+        return kafka
+
+    async def _refresh_kafka_cli(self, kafka_names: List[str]) -> KafkaSnapshot:
+        """The heavier sub-cadence pull: find a live broker (fallback order
+        1, 2, 3, ...), then run every CLI shellout concurrently
+        (`asyncio.gather`) -- this is what makes the ~10s sub-cadence figure
+        realistic instead of the ~7-14s a sequential sum of ~7 JVM-startup
+        CLI invocations would take (ADR D-MBK5). Degrades to an empty-but-
+        `running=True` snapshot (never raises) if every broker is
+        unreachable this cycle -- a transient CLI hiccup must not take down
+        the whole collector cycle (mirrors `docker_stats`'s "never raise"
+        posture)."""
+        live = await kafka_stats.find_live_broker(kafka_names, timeout_s=5.0)
+        if live is None:
+            self._kafka_partitions_led = {}
+            return KafkaSnapshot(running=True)
+
+        topics, urp, offset_rows, state_rows, quorum_status, _log_dirs = await asyncio.gather(
+            kafka_stats.fetch_topics_describe(live),
+            kafka_stats.fetch_urp(live),
+            kafka_stats.fetch_consumer_groups_offsets(live),
+            kafka_stats.fetch_consumer_groups_state(live),
+            kafka_stats.fetch_quorum_status(live),
+            kafka_stats.fetch_log_dirs(live),
+        )
+
+        topic_names = [t.name for t in topics]
+        offsets_per_topic = (
+            await asyncio.gather(*(kafka_stats.fetch_offsets(live, name) for name in topic_names))
+            if topic_names
+            else []
+        )
+        current_offsets: Dict[Tuple[str, int], int] = {}
+        for topic_offsets in offsets_per_topic:
+            current_offsets.update(topic_offsets)
+
+        now = time.monotonic()
+        throughput_label = "—"
+        if self._prev_kafka_offsets_ts is not None:
+            delta_elapsed = now - self._prev_kafka_offsets_ts
+            common_keys = set(current_offsets) & set(self._prev_kafka_offsets)
+            if delta_elapsed > 0 and common_keys:
+                delta_msgs = sum(
+                    max(0, current_offsets[k] - self._prev_kafka_offsets[k]) for k in common_keys
+                )
+                throughput_label = f"{delta_msgs / delta_elapsed:.1f} msg/s"
+        self._prev_kafka_offsets = current_offsets
+        self._prev_kafka_offsets_ts = now
+
+        # Per-broker size (bytes), summed per topic from kafka-log-dirs.sh,
+        # only needed at topic granularity here.
+        topic_sizes: Dict[str, int] = {}
+        for (t_name, _part), size in _log_dirs.items():
+            topic_sizes[t_name] = topic_sizes.get(t_name, 0) + size
+
+        urp_keys = {(p.topic, p.partition) for p in urp}
+        topic_rows: List[KafkaTopicRow] = []
+        partitions_led: Dict[int, int] = {}
+        for t in topics:
+            urp_count = sum(1 for p in t.partitions if (p.topic, p.partition) in urp_keys)
+            for p in t.partitions:
+                if p.leader is not None:
+                    partitions_led[p.leader] = partitions_led.get(p.leader, 0) + 1
+            size_bytes = topic_sizes.get(t.name)
+            topic_rows.append(
+                KafkaTopicRow(
+                    name=t.name,
+                    partitions=t.partition_count if t.partition_count is not None else len(t.partitions),
+                    replication_factor=t.replication_factor,
+                    under_replicated_count=urp_count,
+                    isr_health_label="Under-replicated" if urp_count else "Healthy",
+                    isr_health_color=config.DASHBOARD_COLOR_RED if urp_count else config.DASHBOARD_COLOR_GREEN,
+                    size_label=f"{size_bytes / 1e6:.1f} MB" if size_bytes is not None else "—",
+                )
+            )
+        self._kafka_partitions_led = partitions_led
+
+        state_by_group = {row.group: row for row in state_rows}
+        offsets_by_group: Dict[str, List[kafka_stats.GroupOffsetRow]] = {}
+        for row in offset_rows:
+            offsets_by_group.setdefault(row.group, []).append(row)
+
+        group_rows: List[ConsumerGroupRow] = []
+        total_lag = 0
+        for group_name, rows in offsets_by_group.items():
+            state = state_by_group.get(group_name)
+            partitions = [
+                PartitionLagRow(
+                    topic=r.topic,
+                    partition=r.partition if r.partition is not None else -1,
+                    current_offset=r.current_offset,
+                    log_end_offset=r.log_end_offset,
+                    lag=r.lag,
+                    lag_label=str(r.lag) if r.lag is not None else "—",
+                )
+                for r in rows
+            ]
+            group_lag = sum(p.lag for p in partitions if p.lag is not None)
+            total_lag += group_lag
+            group_rows.append(
+                ConsumerGroupRow(
+                    group=group_name,
+                    state=state.state if state else "—",
+                    members=state.members if state else None,
+                    total_lag=group_lag,
+                    total_lag_label=str(group_lag),
+                    partitions=partitions,
+                )
+            )
+
+        return KafkaSnapshot(
+            running=True,
+            under_replicated_count=len(urp),
+            active_controller_id=kafka_stats.active_controller_id(quorum_status),
+            throughput_label=throughput_label,
+            consumer_group_count=len(group_rows),
+            total_lag=total_lag,
+            topics=topic_rows,
+            consumer_groups=group_rows,
+        )
+
+    def _build_kafka_brokers(
+        self,
+        kafka_names: List[str],
+        stats_by_name: Dict[str, ContainerStat],
+        elapsed_s: Optional[float],
+        cli: Optional[KafkaSnapshot],
+    ) -> List[KafkaBrokerStat]:
+        """Broker CPU/RAM/disk/net rebuilt fresh every cycle from the
+        already-fetched `docker stats` batch -- reused at zero added cost,
+        same delta idiom `_build_nodes` uses for disk/net (ADR D-MBK5)."""
+        controller_id = cli.active_controller_id if cli else None
+        brokers: List[KafkaBrokerStat] = []
+        for name in kafka_names:
+            node_id = _kafka_node_id(name)
+            stat = stats_by_name.get(name)
+            prev = self._prev_containers.get(name)
+
+            broker = KafkaBrokerStat(
+                node_id=node_id,
+                container_name=name,
+                online=stat is not None,
+                is_controller=(controller_id is not None and node_id == controller_id),
+                partitions_led=self._kafka_partitions_led.get(node_id, 0),
+            )
+
+            if stat is not None and stat.cpu_pct is not None:
+                cpu_pct = max(0, round(stat.cpu_pct))
+                broker.cpu_pct = cpu_pct
+                broker.cpu_label = f"{cpu_pct}%"
+                broker.cpu_color = _color_for_pct(cpu_pct, config.DASHBOARD_CPU_WARN_PCT, config.DASHBOARD_CPU_CRIT_PCT)
+
+            if stat is not None and stat.mem_used_bytes is not None and stat.mem_limit_bytes:
+                ram_pct = round((stat.mem_used_bytes / stat.mem_limit_bytes) * 100)
+                broker.ram_pct = ram_pct
+                broker.ram_label = f"{ram_pct}%"
+                broker.ram_color = _color_for_pct(ram_pct, config.DASHBOARD_RAM_WARN_PCT, config.DASHBOARD_RAM_CRIT_PCT)
+
+            if stat is not None and prev is not None and elapsed_s:
+                disk_delta = None
+                net_delta = None
+                if stat.block_read_bytes is not None and prev.block_read_bytes is not None:
+                    disk_delta = (stat.block_read_bytes - prev.block_read_bytes) + (
+                        (stat.block_write_bytes or 0) - (prev.block_write_bytes or 0)
+                    )
+                if stat.net_rx_bytes is not None and prev.net_rx_bytes is not None:
+                    net_delta = (stat.net_rx_bytes - prev.net_rx_bytes) + (
+                        (stat.net_tx_bytes or 0) - (prev.net_tx_bytes or 0)
+                    )
+                broker.disk_io = _rate_label(disk_delta, elapsed_s)
+                broker.net_io = _rate_label(net_delta, elapsed_s)
+
+            broker.status_color = (
+                config.DASHBOARD_COLOR_MASTER_BADGE
+                if broker.is_controller
+                else (broker.cpu_color if broker.cpu_pct is not None else config.DASHBOARD_COLOR_GREEN)
+                if broker.online
+                else "#8b93a3"
+            )
+
+            brokers.append(broker)
+        return brokers
 
     def _build_job(self, app_id, current_stage, stages_raw, task_samples):
         if not app_id:
