@@ -147,6 +147,37 @@ class TestLoadRealSerializationFormatsManifest:
         assert manifest.task_duration_quantiles is False
 
 
+class TestLoadRealUdfPandasUdfManifest:
+    """US-4.3 (issue #51): this topic's self-check hypothesis is both a
+    plan-shape fact (BatchEvalPython for row-at-a-time udf() vs.
+    ArrowEvalPython for vectorized pandas_udf() -- a sibling pair mirroring
+    content/catalyst-plans/'s already-shipped BatchEvalPython rule, both
+    live-confirmed against a real Spark 4.0.3 cluster capture per Open
+    Question 4, not assumed) and a stage_metrics spotlighting case
+    (executorRunTime, the summed-executor-CPU-time evidence for the
+    measured ~2.8-3.2x speedup) -- same "label what the notebook's plan
+    actually contains" spirit as the other real-topic classes above."""
+
+    def test_plan_nodes_label_udf_and_pandas_udf_eval(self):
+        manifest = load_annotation_manifest("udf-pandas-udf")
+        rules = {r.match: r for r in manifest.plan_nodes}
+        assert "BatchEvalPython" in rules
+        assert rules["BatchEvalPython"].concept == "python-udf-eval"
+        assert "row-at-a-time" in rules["BatchEvalPython"].label.lower()
+        assert "ArrowEvalPython" in rules
+        assert rules["ArrowEvalPython"].concept == "pandas-udf-eval"
+        assert "vectorized" in rules["ArrowEvalPython"].label.lower()
+
+    def test_stage_metrics_spotlight_executor_run_time(self):
+        manifest = load_annotation_manifest("udf-pandas-udf")
+        spotlighted = {r.key for r in manifest.stage_metrics if r.spotlight}
+        assert "executorRunTime" in spotlighted
+
+    def test_no_task_duration_quantiles_opt_in(self):
+        manifest = load_annotation_manifest("udf-pandas-udf")
+        assert manifest.task_duration_quantiles is False
+
+
 class TestLoadRealExecutorTuningManifest:
     """US-C3 (issue #34): this topic's self-check hypothesis (does 1 fat
     executor per node vs. several right-sized executors change wall-clock

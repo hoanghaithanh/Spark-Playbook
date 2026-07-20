@@ -36,10 +36,10 @@ app (topic page, cluster control panel, embedded JupyterLab — `docs/acceptance
 Phase 2 self-check annotation engine, the Phase 2.5 realtime monitoring dashboard
 (`docs/acceptance/phase-2-5.md`), the unified topic-page shell (Concept/Notebook/Self-check tabs,
 cluster-config drawer, breadcrumb switcher), and a data-driven topics-index landing page (`GET /`,
-one card per `content/*/manifest.yaml` topic, no hardcoded list). 14 curriculum topics are built:
+one card per `content/*/manifest.yaml` topic, no hardcoded list). 15 curriculum topics are built:
 partitioning/shuffle, join strategies, bucketing, AQE, Catalyst plans, DAG & lazy evaluation,
 caching & persistence, window functions, serialization formats, executor tuning, memory management,
-skew & salting, checkpointing, and fault tolerance & lineage.
+skew & salting, checkpointing, fault tolerance & lineage, and UDF vs pandas UDF serialization cost.
 
 **Shipped:**
 - **v1.0 — Public Deploy** (GitHub milestone #8, closed 2026-07-19) — implemented and
@@ -55,12 +55,14 @@ skew & salting, checkpointing, and fault tolerance & lineage.
   [Deploy (single-user, remote)](#deploy-single-user-remote) below for the full design and operator
   checklist.
 
-**Currently in flight:** no sprint currently in flight. Sprint 9 (Fault Tolerance & Lineage,
-GitHub milestone #11, issue #49) shipped and is human-signed-off, but the sprint's own close-out
-(retro + milestone close) hasn't run yet.
+**Currently in flight:** Sprint 11 (GitHub milestone #14, 2026-07-27 – 2026-07-31) is active. Its
+sole story, issue #51 (UDF vs pandas UDF serialization cost), shipped, was code-reviewed clean, and
+passed acceptance validation with human sign-off (`docs/qa/udf-pandas-udf-acceptance.md`), but the
+sprint's own close-out (retro + milestone close) hasn't run yet.
 
-**Not yet started:** Phase 3 (streaming/Kafka) — Kafka infra is slated for Sprint 10, not yet
-scheduled.
+**Not yet started:** the rest of Phase 3 (streaming/Kafka). Kafka infra itself shipped in Sprint 10
+(issue #50), but `v1.1 — Live Market Data Streaming`'s remaining sub-stories (issues #52-#55) and
+the newly approved `v1.2 — Multi-Broker Kafka Cluster & Monitor` release milestone haven't started.
 
 For the full story-by-story history, acceptance evidence, and prioritized backlog, see
 [`docs/backlog.md`](docs/backlog.md). For the phased roadmap and architecture in detail, see

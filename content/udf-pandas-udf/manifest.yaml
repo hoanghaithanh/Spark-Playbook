@@ -1,0 +1,47 @@
+# Spark Playbook — topic manifest (PLAN.md §3 schema).
+#
+# US-4.3 (draft): timing evidence is an ordinary `stage_metrics` spotlight
+# (`executorRunTime`, already exposed by `/api/v1/applications/<id>/stages`
+# and already consumed unmodified by `engine.spotlight_stage_metrics()`) --
+# same disposition already used by US-C5 (Caching speedup) and US-C8
+# (Serialization Formats bytes-read). No new REST surface, no new manifest
+# section.
+#
+# plan_nodes carries a sibling pair mirroring content/catalyst-plans/
+# manifest.yaml's already-shipped, live-validated `BatchEvalPython` ->
+# `python-udf-eval` rule: `BatchEvalPython` for the row-at-a-time udf() path,
+# `ArrowEvalPython` for the vectorized pandas_udf() path. Per the
+# requirements doc's Open Question 4, `ArrowEvalPython` was NOT assumed --
+# both node names below were confirmed via a live `.explain(mode=
+# "formatted")` capture against a real cluster before this rule shipped (see
+# concept.md's verification note). Both are single-word tokens, compatible
+# with plan_parser.py's first-word-only tokenizer (issue #31) -- no tokenizer
+# change needed.
+
+id: udf-pandas-udf
+title: "UDF vs pandas UDF: Serialization Cost"
+order: 14
+content: concept.md
+notebook: notebook.ipynb
+
+cluster_defaults:
+  worker_count: 3
+  worker_cores: 2
+  worker_memory_gb: 4
+  shuffle_partitions: 200
+  aqe_enabled: false
+requires_kafka: false
+
+annotation:
+  plan_nodes:
+    - match: "BatchEvalPython"
+      concept: python-udf-eval
+      label: "Row-at-a-time Python UDF evaluation (opaque bytecode, one Python call per row)"
+    - match: "ArrowEvalPython"
+      concept: pandas-udf-eval
+      label: "Vectorized pandas UDF evaluation (Arrow-batched, one Python call per batch)"
+
+  stage_metrics:
+    - key: executorRunTime
+      spotlight: true
+    - key: numTasks

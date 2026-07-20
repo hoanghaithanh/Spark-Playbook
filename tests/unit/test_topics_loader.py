@@ -169,6 +169,42 @@ class TestLoadRealSerializationFormatsTopic:
         assert "serialization-formats" in ids
 
 
+class TestLoadRealUdfPandasUdfTopic:
+    """Sanity check against the actual shipped content/udf-pandas-udf/
+    (US-4.3, issue #51) -- same coverage shape as
+    TestLoadRealSerializationFormatsTopic above."""
+
+    def test_manifest_fields(self):
+        topic = loader.load_topic("udf-pandas-udf")
+        assert topic.id == "udf-pandas-udf"
+        assert topic.title == "UDF vs pandas UDF: Serialization Cost"
+        assert topic.order == 14
+        assert topic.requires_kafka is False
+        assert topic.cluster_defaults.worker_count == 3
+        assert topic.cluster_defaults.worker_cores == 2
+        assert topic.cluster_defaults.worker_memory_gb == 4
+        assert topic.cluster_defaults.shuffle_partitions == 200
+        assert topic.cluster_defaults.aqe_enabled is False
+
+    def test_concept_markdown_renders_to_html(self):
+        topic = loader.load_topic("udf-pandas-udf")
+        html = topic.concept_html()
+        assert "vectorized" in html.lower()
+        assert "BatchEvalPython" in html
+        assert "ArrowEvalPython" in html
+        assert "executorRunTime" in html
+
+    def test_notebook_path_resolves(self):
+        topic = loader.load_topic("udf-pandas-udf")
+        assert topic.notebook_path.name == "notebook.ipynb"
+        assert topic.notebook_path.exists()
+
+    def test_list_topics_includes_udf_pandas_udf(self):
+        topics = loader.list_topics()
+        ids = [t.id for t in topics]
+        assert "udf-pandas-udf" in ids
+
+
 class TestLoadRealExecutorTuningTopic:
     """Sanity check against the actual shipped content/executor-tuning/
     (US-C3, issue #34) -- same coverage shape as
@@ -342,7 +378,7 @@ class TestBlurb:
 
 class TestRequiresKafkaField:
     """docs/architecture/kafka-streaming-infra.md's claim: `requires_kafka:
-    bool` already existed pre-#50 (`app/topics/loader.py:233`) and all 14
+    bool` already existed pre-#50 (`app/topics/loader.py:233`) and all
     shipped manifests set/default it to false. Individual topic classes
     above already assert this piecemeal for a handful of topics -- this is
     the one comprehensive regression guard across every shipped manifest,
@@ -351,7 +387,8 @@ class TestRequiresKafkaField:
 
     def test_every_shipped_topic_defaults_requires_kafka_false(self):
         topics = loader.list_topics()
-        assert len(topics) == 14, "expected 14 shipped topics as of the Kafka ADR"
+        # 14 topics as of the Kafka ADR, +1 for udf-pandas-udf (#51, Sprint 11).
+        assert len(topics) == 15, "expected 15 shipped topics as of #51 (UDF vs pandas UDF)"
         for topic in topics:
             assert topic.requires_kafka is False, f"{topic.id} unexpectedly requires_kafka=True"
 
