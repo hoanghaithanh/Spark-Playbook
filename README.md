@@ -55,12 +55,32 @@ skew & salting, checkpointing, and fault tolerance & lineage.
   [Deploy (single-user, remote)](#deploy-single-user-remote) below for the full design and operator
   checklist.
 
-**Currently in flight:** no sprint currently in flight. Sprint 9 (Fault Tolerance & Lineage,
-GitHub milestone #11, issue #49) shipped and is human-signed-off, but the sprint's own close-out
-(retro + milestone close) hasn't run yet.
+- **Kafka infra** (Sprint 10, GitHub issue #50, closed 2026-07-19) — conditional Kafka (KRaft)
+  in the compose template, since upgraded to a real, user-configurable **multi-broker** cluster
+  (1–5 brokers, default 3, RF=3 / `min.insync.replicas=2`) as `v1.2 — Multi-Broker Kafka Cluster
+  & Monitor`'s first sub-story (issue #56, closed 2026-07-20). A "Kafka" section now lives in the
+  same cluster-config drawer used for Spark — check the box, pick a broker count, spawn/tear down
+  together in one action, on any topic page, not just a streaming one. See
+  [`docs/architecture/kafka-streaming-infra.md`](docs/architecture/kafka-streaming-infra.md) and
+  [`docs/architecture/multi-broker-kafka-cluster.md`](docs/architecture/multi-broker-kafka-cluster.md).
 
-**Not yet started:** Phase 3 (streaming/Kafka) — Kafka infra is slated for Sprint 10, not yet
-scheduled.
+**Currently in flight:**
+- **Sprint 11** (GitHub milestone #14) — issue #51 (UDF vs pandas UDF curriculum topic), not yet
+  started.
+- **v1.1 — Live Market Data Streaming** (GitHub milestone #13) — real Coinbase/Finnhub-sourced
+  prices flowing through Kafka into a real Spark Structured Streaming job, plus a live price
+  dashboard. Requirements and architecture are done; 4 sub-story issues (#52–#55) are filed;
+  development hasn't started yet (blocked on a Finnhub API key for the stock-data half — Coinbase's
+  crypto side needs no key). See
+  [`docs/requirements/live-market-data-streaming.md`](docs/requirements/live-market-data-streaming.md).
+- **v1.2 — Multi-Broker Kafka Cluster & Monitor** (GitHub milestone #15) — sub-story (a), the
+  multi-broker topology above, is done and signed off. The observability data layer, a JMX
+  exporter, a Kafka Cluster Monitor panel (a 4th tab in the existing Cluster Monitor, built
+  against a design mockup), and a broker-kill fault-tolerance demo (issues #57–#60) remain. See
+  [`docs/requirements/multi-broker-kafka-cluster.md`](docs/requirements/multi-broker-kafka-cluster.md).
+
+**Not yet started:** the Structured Streaming curriculum topic itself (content + notebook, v1.1's
+remaining sub-stories) and the Kafka Cluster Monitor panel UI (v1.2's remaining sub-stories).
 
 For the full story-by-story history, acceptance evidence, and prioritized backlog, see
 [`docs/backlog.md`](docs/backlog.md). For the phased roadmap and architecture in detail, see
