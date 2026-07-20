@@ -25,8 +25,8 @@ Ordered top-to-bottom by priority. Entries move out of this list into a sprint m
 | 13 | Phase 2.5 — Realtime monitoring dashboard: UI placement/integration with existing cluster panel, topic pages, and deep links into the real Spark UI | S | [docs/requirements/realtime-monitoring-dashboard.md](requirements/realtime-monitoring-dashboard.md), [docs/requirements/topic-shell-redesign.md](requirements/topic-shell-redesign.md) | Done (Sprint 2) as originally scoped (US-5.6 PASS, human sign-off 2026-07-15). **Follow-on redesign scoped 2026-07-15**: the standalone `/dashboard` route is being retired in favor of a Cluster Monitor slide-in panel — product decision and migration mechanics both settled and approved (`docs/architecture/topic-shell-redesign.md` Decision B). Implementation tracked separately as GitHub issue #23 (Sprint 3), now unblocked since Phase 2.5 sign-off has landed. |
 | 14 | Curriculum topic: Caching/persistence — storage levels, eviction/spill-to-disk demo | S | [docs/requirements/spark-playbook-mvp.md](requirements/spark-playbook-mvp.md) (original), [docs/requirements/curriculum-topics-2026-07.md](requirements/curriculum-topics-2026-07.md) (US-C5, concrete content + self-check hypothesis, supersedes/extends the original) | Done (Sprint 5) — all 3 US-C5 acceptance criteria (docs/requirements/curriculum-topics-2026-07.md) validated live across two independent runs against a fresh live cluster and the real running app: `.cache()`+`.count()` shows 100% fraction cached with real memory/disk sizes on the Storage tab/REST; measured cache-speedup timing captured for real (never hardcoded — 6.2x first run, 8.2x second run); `MEMORY_ONLY` vs `MEMORY_AND_DISK` eviction/spill-to-disk contrast demonstrated both times (nonzero disk usage for `MEMORY_AND_DISK`, cached fraction >= `MEMORY_ONLY`'s — 94%/99% first run, 94%/100% second run). Notebook development included a genuine live-debugging catch: an early cell used Python-Row-object dataset construction that reliably OOM'd real Spark executors, found and fixed by rewriting it to vectorized `spark.range()` + column expressions instead. Self-check evidence confirmed derivable via the real Reveal endpoint against a live checkpoint. Code-reviewer found no Blockers (one dismissed Minor on a harmless redundant `unpersist()` call, one advisory nit on comment length). Human has given final sign-off. GitHub issue [#28](https://github.com/hoanghaithanh/Spark-Playbook/issues/28) closed 2026-07-16. Second of Sprint 5's 4 stories to ship; all 4 are now done. |
 | 15 | Curriculum topic: Window functions — ranking/running aggregates/lead-lag, shuffle+sort cost, skew tie-in | S | [docs/requirements/spark-playbook-mvp.md](requirements/spark-playbook-mvp.md) (original), [docs/requirements/curriculum-topics-2026-07.md](requirements/curriculum-topics-2026-07.md) (US-C6, concrete content incl. missing-`partitionBy` failure mode, supersedes/extends the original) | Done (Sprint 5) — all 3 US-C6 acceptance criteria (docs/requirements/curriculum-topics-2026-07.md) validated live against a real 3-worker cluster and a real JupyterLab kernel (docs/qa/window-functions-acceptance.md): the correct-usage `row_number()`/running-total query shows a `Window` plan node preceded by `Sort`/`Exchange` (Stage 12: numTasks=200), with computed results independently cross-checked (`rn == 1` count exactly 2000, running-total vs. a separate `groupBy().agg(sum())` baseline — 0 mismatches across all 2,000 users); the deliberate missing-`partitionBy` contrast produced Spark's own driver-log WARN (`WindowExec: No Partition Defined for Window operation!`) and collapsed the window-reduce stage to a single task (Stage 15: numTasks=1 vs. 200 for the correct-usage case); the Self-check Reveal flow surfaced both stage rows (numTasks=200/numTasks=1) side by side from real stage/task REST data, no new annotation-engine capability needed. Code-reviewer found no Blockers. Human has given final sign-off (2026-07-16). GitHub issue [#29](https://github.com/hoanghaithanh/Spark-Playbook/issues/29) closed 2026-07-16. Third of Sprint 5's 4 stories to ship; all 4 are now done. |
-| 16 | Curriculum topic: UDF vs pandas UDF serialization cost — timing comparison + plan distinction | M | [docs/requirements/spark-playbook-mvp.md](requirements/spark-playbook-mvp.md) | Backlog |
-| 17 | Curriculum topic: Memory management & spill (unified memory manager, execution vs storage memory, off-heap, OOM diagnosis) — dedicated topic, not folded into joins/AQE | M | [docs/requirements/spark-playbook-mvp.md](requirements/spark-playbook-mvp.md) (original, US-4.4), [docs/requirements/curriculum-topics-2026-07.md](requirements/curriculum-topics-2026-07.md) (US-C10, concrete unified-memory-manager eviction-under-contention notebook + self-check hypothesis, supersedes/extends the original; added 2026-07-15 same day as a doc-gap fix — `curriculum-topics-2026-07.md` originally missed this topic entirely, see new row #32) | Backlog |
+| 16 | Curriculum topic: UDF vs pandas UDF serialization cost — timing comparison + plan distinction | M | [docs/requirements/spark-playbook-mvp.md](requirements/spark-playbook-mvp.md) | Backlog — filed as GitHub issue [#51](https://github.com/hoanghaithanh/Spark-Playbook/issues/51), milestoned into Sprint 11 (2026-07-27 – 2026-07-31), pending requirements-analyst formalization before development starts |
+| 17 | Curriculum topic: Memory management & spill (unified memory manager, execution vs storage memory, off-heap, OOM diagnosis) — dedicated topic, not folded into joins/AQE | M | [docs/requirements/spark-playbook-mvp.md](requirements/spark-playbook-mvp.md) (original, US-4.4), [docs/requirements/curriculum-topics-2026-07.md](requirements/curriculum-topics-2026-07.md) (US-C10, concrete unified-memory-manager eviction-under-contention notebook + self-check hypothesis, supersedes/extends the original; added 2026-07-15 same day as a doc-gap fix — `curriculum-topics-2026-07.md` originally missed this topic entirely, see new row #32) | Backlog — **flagged stale 2026-07-19, still unresolved**: this row is superseded by row #32 (Memory Management, Done Sprint 6, GitHub issue #36), which already shipped the same US-C10 scope. Likely a duplicate row left over from before #32 was filed; needs a project-manager cleanup pass (retire or re-scope this row) rather than being pulled into a future sprint as-is. |
 | 18 | Curriculum topic: Structured Streaming + Kafka (watermarks, stateful aggregation, checkpoint recovery) — notebook + live query-progress chart | L | [docs/requirements/spark-playbook-mvp.md](requirements/spark-playbook-mvp.md) (original), [docs/requirements/curriculum-topics-2026-07.md](requirements/curriculum-topics-2026-07.md) (US-C7, concrete state-growth-vs-plateau demonstration, supersedes/extends the original) | Backlog — still sequenced behind #19 (Phase 3 Kafka integration), unchanged |
 | 19 | Phase 3 — streaming + Kafka integration: conditional Kafka (KRaft) in the compose template, synthetic producer script, wired into the streaming topic | L | [docs/requirements/spark-playbook-mvp.md](requirements/spark-playbook-mvp.md) | Done (Sprint 10) — conditional Kafka (KRaft) service added to the compose template plus a synthetic producer (`produce.py` CLI, `driver/playbook/producer.py` wrapper), designed via architect ADR `docs/architecture/kafka-streaming-infra.md` (amended for two human-resolved open questions: dual-listener host access, minimal event schema deferred to #18). Live acceptance (`docs/qa/kafka-streaming-infra-acceptance.md`): US-3.1 both given/thens PASS live against a real 3-worker cluster + real KRaft broker; US-3.2's first given/then PASS live (producer rate/message-count/host-shell-access independently verified); US-3.2's second given/then and all of US-3.3 correctly marked N/A, deferred to #18 (they need the Structured Streaming query+notebook #18 builds, not this infra story). Developer found 3 documented deviations from the ADR's literal draft via live-broker testing; test-engineer added 43 new unit tests (350→393 passed, 2 skipped, no regressions) and found one real bug (advertised-listener host mismatch, R-K6), fixed alongside 2 Minor code-reviewer findings (stale docstring address, unreaped zombie process on force-kill). Code-reviewer found no Blockers. No security-auditor pass — not triggered (no auth/secrets/PII/payments; the one new host-published port is loopback-only, unauthenticated by design, consistent with existing local-only ports). Human has given final sign-off (2026-07-19). GitHub issue [#50](https://github.com/hoanghaithanh/Spark-Playbook/issues/50) closed 2026-07-19 — **convention note:** closed directly, no `Fixes #50` commit-message keyword (same departure pattern as #47/#38/others in recent sprints, not a new issue). |
 | 20 | Curriculum topic: Delta/Iceberg (optional) — ACID writes, time travel, schema evolution | M | [docs/requirements/spark-playbook-mvp.md](requirements/spark-playbook-mvp.md) | Backlog |
@@ -281,3 +281,63 @@ multi-stage-catch, and the deliberate US-3.2/3.3 in-scope-vs-deferred acceptance
 milestone #12 closed via `gh api` PATCH-to-closed (0 open / 1 closed, no open issues to flag).
 Backlog row #19 (Phase 3 Kafka infra) status above is unchanged as already-accurate; nothing further
 to update here. Sprint 11 is not proposed in this pass — that's a separate sprint-planning step.
+
+## New release milestone: v1.1 — Live Market Data Streaming (2026-07-19)
+
+A new body of work — replacing the synthetic-data framing behind backlog row #18 (Structured
+Streaming + Kafka) with a genuinely live demo — was approved by the human on 2026-07-19, per the
+full plan at `C:\Users\hoang\.claude\plans\for-18-i-want-lazy-candle.md`: real Coinbase crypto
+(public `ticker` channel, no API key needed) and Finnhub stock (free-tier WebSocket) feeds land on
+a keyed Kafka `prices` topic; genuine dynamic subscribe/unsubscribe (not a client-side filter) is
+driven by a log-compacted `price-subscriptions` control topic, so a browser ticker selection
+actually changes what the upstream producer is subscribed to; a real Spark Structured Streaming job
+(`content/structured-streaming/`) runs watermarking, windowed OHLC aggregation, and checkpoint
+recovery against that data (including a real-data late-tick injection knob for the late-data demo,
+since live feeds can't be made to produce late ticks on demand); and a live browser price dashboard
+(`PriceCollector` → SSE, hand-rolled inline-SVG charts, no new frontend dependency) shows prices
+updating in real time as the subscription selection changes. This supersedes the synthetic-data
+framing in the existing requirements docs for #18 (`curriculum-topics-2026-07.md` US-C7,
+`topics-content-spec.md` §11) — that divergence is to be stated explicitly when requirements are
+updated, not left silently contradicting what's on record.
+
+Same release-scale reasoning as `v1.0 — Public Deploy`: this is multi-area work (Kafka topics,
+Spark job, dashboard, secrets handling) different in character and size from a single curriculum
+sprint story, so it's filed as its own **release milestone**,
+[`v1.1 — Live Market Data Streaming`](https://github.com/hoanghaithanh/Spark-Playbook/milestone/13)
+(GitHub milestone #13), mirroring exactly how `v1.0` (milestone #8) was set up — including leaving
+it **empty for now**. Per the plan's own execution sequence, issues for the 4 sub-stories
+(producer + both Kafka topics + dynamic subscribe/unsubscribe; the Spark Structured Streaming
+content; the live price dashboard panel; the query-progress widget) are **not filed yet** — that's
+requirements-analyst's job next (formalizing the real-data pivot and superseding the synthetic
+framing explicitly), followed by an architect ADR (finalizing the subscribe/unsubscribe wire
+protocol, which the plan intentionally left at "shape" level) before development starts, same as the
+plan's own step 2/3 sequencing.
+
+**Not pulled into any sprint yet.** The milestone exists purely as the release-level container; when
+the sub-stories are ready to be scheduled, that's a future sprint-planning checkpoint, same pattern
+as v1.0's issues later landing in Sprint 7.
+
+## Sprint 11 proposed and confirmed (2026-07-19)
+
+project-manager proposed, human confirmed: **Sprint 11** pulls in backlog row #16 (Curriculum
+topic: UDF vs pandas UDF serialization cost — timing comparison + plan distinction, M) as its sole
+story, interleaved alongside the early, non-coding (project-manager/requirements-analyst/architect)
+steps of the newly created `v1.1 — Live Market Data Streaming` release milestone (#13) — same
+interleaving precedent as Sprint 7 running alongside curriculum work, applied here in reverse
+(a self-contained curriculum story running alongside a release's early planning steps, before any of
+its coding-heavy sub-stories are ready to pull into a sprint themselves).
+
+**Sprint 11 (GitHub milestone #14, 2026-07-27 – 2026-07-31) created 2026-07-19**, picking up where
+Sprint 10 (GitHub milestone #12, ended 2026-07-27) left off. Issue
+[#51](https://github.com/hoanghaithanh/Spark-Playbook/issues/51) (UDF vs pandas UDF, backlog row
+#16) filed and milestoned 2026-07-19; requirements-analyst formalization (concrete acceptance
+criteria, added to `curriculum-topics-2026-07.md` alongside the other US-C* stories) is the next
+pipeline step before development starts, same gap as existing between #18's original filing and its
+eventual requirements work.
+
+**Flagging for a future project-manager cleanup pass (not fixed in this update):** backlog row #17
+(Memory Management & spill, US-4.4) appears stale/superseded by row #32 (Memory Management, Done
+Sprint 6, GitHub issue #36) — both describe the same unified-memory-manager eviction-under-contention
+scope, and #32 already shipped it with human sign-off. Row #17's status note above has been updated
+to surface this explicitly so it isn't silently pulled into a future sprint as live scope; retiring
+or re-scoping the row is left for a dedicated cleanup pass rather than decided here.
