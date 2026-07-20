@@ -244,3 +244,54 @@ class TestKafkaSubCadence:
 
         release.set()
         await fresh_collector._kafka_refresh_task
+
+
+class TestKafkaRefreshGenerationGuard:
+    @pytest.mark.asyncio
+    async def test_stale_completed_refresh_callback_does_not_overwrite_reset_state(self, fresh_collector):
+        """Re-review of the finding-1 fix: a refresh task can *finish*
+        (return normally, not get cancelled) right around a teardown --
+        `.cancel()` on an already-done task is a no-op, and nothing
+        guarantees its `add_done_callback` has run before `_reset_deltas()`
+        does its synchronous reset. Without a generation guard, that queued
+        callback would land after the reset and write the old cluster's
+        `KafkaSnapshot` back into `_latest_kafka_cli`. Simulate exactly that
+        interleaving: capture the generation a task was launched under,
+        finish the task, tear down (bumps the generation, resets state), then
+        invoke the done-callback -- as if it had been sitting on the event
+        loop's ready queue the whole time."""
+        gen = fresh_collector._kafka_generation
+
+        async def _old_cluster_result():
+            return KafkaSnapshot(running=True, active_controller_id=1)
+
+        task = asyncio.create_task(_old_cluster_result())
+        await task  # task is now done, but its done-callback hasn't run yet
+
+        fresh_collector._reset_deltas()  # teardown: bumps generation, resets cache
+        assert fresh_collector._latest_kafka_cli is None
+
+        fresh_collector._on_kafka_refresh_done(gen, task)  # the stale callback finally fires
+
+        assert fresh_collector._latest_kafka_cli is None, (
+            "a done-callback from a task launched under a superseded generation "
+            "must not write its stale result back in after teardown"
+        )
+
+    @pytest.mark.asyncio
+    async def test_same_generation_refresh_callback_still_applies_result(self, fresh_collector):
+        """Regression guard for the happy path: when no teardown happened in
+        between, the generation still matches and the result is applied as
+        before."""
+        gen = fresh_collector._kafka_generation
+        snapshot = KafkaSnapshot(running=True, active_controller_id=2)
+
+        async def _result():
+            return snapshot
+
+        task = asyncio.create_task(_result())
+        await task
+
+        fresh_collector._on_kafka_refresh_done(gen, task)
+
+        assert fresh_collector._latest_kafka_cli is snapshot

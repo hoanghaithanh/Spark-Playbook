@@ -17,6 +17,7 @@ the empty state, without a second persistent poller task.
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import re
 import time
@@ -256,6 +257,12 @@ class DashboardCollector:
         # the sub-cadence refresh from the base-cadence broadcast.
         self._latest_kafka_cli: Optional[KafkaSnapshot] = None
         self._kafka_refresh_task: Optional[asyncio.Task] = None
+        # Issue #57 re-review finding: bumped every time a refresh task's
+        # result is invalidated (`_cancel_kafka_refresh`, on teardown or on a
+        # non-Kafka cluster) so a done-callback for a task launched under an
+        # earlier generation can tell its result is stale even when the task
+        # had already finished (not cancellable) before the invalidation ran.
+        self._kafka_generation: int = 0
         self._kafka_partitions_led: Dict[int, int] = {}
         self._prev_kafka_offsets: Dict[Tuple[str, int], int] = {}
         self._prev_kafka_offsets_ts: Optional[float] = None
@@ -354,7 +361,17 @@ class DashboardCollector:
         mid-refresh -- cancel it cleanly (mirrors `unsubscribe()`'s
         `self._task.cancel()` pattern for the outer collector loop; the
         cancelled `docker exec` child is reaped by `kafka_stats._run`'s own
-        `CancelledError` handling, issue #18)."""
+        `CancelledError` handling, issue #18).
+
+        Re-review finding: cancelling only covers a task still in flight. A
+        task that already *finished* right around teardown can't be
+        cancelled, and its `add_done_callback` may still be queued on the
+        event loop -- so every call site that invalidates the cached refresh
+        result also bumps `_kafka_generation` here, letting the pending
+        `_on_kafka_refresh_done` callback recognize its result belongs to a
+        superseded generation and drop it instead of writing stale data back
+        in."""
+        self._kafka_generation += 1
         if self._kafka_refresh_task is not None and not self._kafka_refresh_task.done():
             self._kafka_refresh_task.cancel()
         self._kafka_refresh_task = None
@@ -746,8 +763,9 @@ class DashboardCollector:
             or self._kafka_cycle_count % config.KAFKA_COLLECTOR_SUBCADENCE_CYCLES == 0
         )
         if due_for_refresh and (self._kafka_refresh_task is None or self._kafka_refresh_task.done()):
+            gen = self._kafka_generation
             self._kafka_refresh_task = asyncio.create_task(self._refresh_kafka_cli(kafka_names))
-            self._kafka_refresh_task.add_done_callback(self._on_kafka_refresh_done)
+            self._kafka_refresh_task.add_done_callback(functools.partial(self._on_kafka_refresh_done, gen))
         cli = self._latest_kafka_cli
 
         brokers_total = len(_expected_kafka_containers(params))
@@ -772,13 +790,24 @@ class DashboardCollector:
         self._latest_kafka = kafka
         return kafka
 
-    def _on_kafka_refresh_done(self, task: asyncio.Task) -> None:
+    def _on_kafka_refresh_done(self, gen: int, task: asyncio.Task) -> None:
         """Completion callback for the detached sub-cadence refresh task
         (issue #57 finding 1). Runs outside `collect_once()`'s call stack, so
         it only ever updates the cache the *next* cycle reads -- never blocks
         anything. A cancelled task (cluster teardown mid-refresh, see
-        `_cancel_kafka_refresh`) is expected and silently dropped."""
+        `_cancel_kafka_refresh`) is expected and silently dropped.
+
+        Re-review finding: a task that finished (not cancelled) just before
+        a teardown can still have this callback fire *after*
+        `_reset_deltas()` already ran, since `.cancel()` on an already-done
+        task is a no-op and the queued done-callback isn't guaranteed to run
+        before the synchronous reset. `gen` is the generation this task was
+        launched under (captured in `_build_kafka`); if a teardown has since
+        bumped `_kafka_generation`, this result belongs to a superseded
+        cluster/cadence and must be dropped rather than written in."""
         if task.cancelled():
+            return
+        if gen != self._kafka_generation:
             return
         exc = task.exception()
         if exc is not None:
