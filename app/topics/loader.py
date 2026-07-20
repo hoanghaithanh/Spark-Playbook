@@ -78,6 +78,11 @@ class Topic:
     cluster_defaults: ClusterDefaults
     requires_kafka: bool
     annotation: Dict[str, Any] = field(default_factory=dict)
+    # Kafka-curriculum ADR (docs/architecture/kafka-curriculum.md D-KC1):
+    # groups the topics-index page into two sections. Defaults to "spark" so
+    # none of the 15 pre-existing manifests (none of which set this field)
+    # need editing -- only the new Kafka topics set `track: kafka`.
+    track: str = "spark"
 
     @property
     def notebook_relpath(self) -> str:
@@ -237,6 +242,7 @@ def load_topic(topic_id: str) -> Topic:
         cluster_defaults=cluster_defaults,
         requires_kafka=bool(data.get("requires_kafka", False)),
         annotation=data.get("annotation") or {},
+        track=data.get("track", "spark"),
     )
 
 
@@ -248,3 +254,32 @@ def list_topics() -> List[Topic]:
         if child.is_dir() and (child / "manifest.yaml").exists():
             topics.append(load_topic(child.name))
     return sorted(topics, key=lambda t: t.order)
+
+
+# Kafka-curriculum ADR (docs/architecture/kafka-curriculum.md D-KC1): section
+# display order on the topics-index page -- Spark first (the app's established
+# 15-topic identity), Kafka second (the new parallel track).
+_TRACK_ORDER = ["spark", "kafka"]
+_TRACK_LABELS = {"spark": "Spark", "kafka": "Kafka"}
+
+
+def list_topics_by_track() -> List[tuple]:
+    """Topics grouped for the two-section topics-index page (D-KC1). Returns
+    [(label, [topics sorted by order]), ...] in `_TRACK_ORDER`; a track with
+    no topics is omitted, so the page never renders an empty section heading
+    before that track's first topic ships. Only `routes/topics.py::index()`
+    uses this -- every other caller (breadcrumb switcher, `_shell_context`)
+    keeps the flat `list_topics()`."""
+    by_track: Dict[str, List[Topic]] = {}
+    for t in list_topics():
+        by_track.setdefault(t.track, []).append(t)
+    groups = []
+    for track in _TRACK_ORDER:
+        if by_track.get(track):
+            groups.append((_TRACK_LABELS[track], sorted(by_track[track], key=lambda t: t.order)))
+    # An unknown/future track value renders after the known ones rather than
+    # vanishing from the page.
+    for track, topics in by_track.items():
+        if track not in _TRACK_ORDER:
+            groups.append((track.title(), sorted(topics, key=lambda t: t.order)))
+    return groups

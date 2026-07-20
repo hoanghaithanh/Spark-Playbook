@@ -24,6 +24,14 @@
     <h1 class="topics-title">Topics</h1>
     <p class="topics-subhead">A local PySpark learning tool — each topic pairs a concept with a live notebook and cluster.</p>
 
+    {# Kafka-curriculum ADR (docs/architecture/kafka-curriculum.md D-KC1):
+       topics group into a Spark section and a Kafka section, each with its
+       own order-sorted grid, instead of one flat list. A track with no
+       topics is omitted upstream (loader.list_topics_by_track()), so this
+       renders identically to the old flat page (plus one "Spark" heading)
+       until the first Kafka topic ships. #}
+    {% for label, topics in tracks %}
+    <h2 class="topics-track-heading">{{ label }}</h2>
     <div class="topics-grid">
       {% for topic in topics %}
       <a href="/topics/{{ topic.id }}" class="topic-card">
@@ -36,6 +44,7 @@
       </a>
       {% endfor %}
     </div>
+    {% endfor %}
   </main>
 
 </body>
