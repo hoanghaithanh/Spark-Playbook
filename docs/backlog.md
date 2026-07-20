@@ -50,6 +50,18 @@ Ordered top-to-bottom by priority. Entries move out of this list into a sprint m
 | 38 | Open-source hygiene: LICENSE, secret/history final check, gitignore deploy artifacts, README "Deploy (single-user, remote)" section | S | plan: `docs/requirements/public-deploy.md` | Done (Sprint 7) — merged `0c44b5c`. GitHub issue [#44](https://github.com/hoanghaithanh/Spark-Playbook/issues/44) closed. LICENSE, `.gitignore` coverage, and README deploy docs verified directly (`docs/acceptance/public-deploy.md` A6). Full git-history secret scan explicitly routed to security-auditor per that report, not independently re-verified by project-manager. |
 | 39 | Public deploy: driver Spark UI deep links ("Open in Spark UI", dashboard "Driver UI" link, annotation Reveal stage links) are unreachable through the public HTTPS stack — no nginx route exposes the driver's `:4040`-`:4042` range past the `22/80/443` firewall restriction (US-PD5); deliberately left out of scope during the 2026-07-18 link-fix session since fixing it means widening the public port surface, a separate scope decision needing an architect look | S | [docs/architecture/public-deploy.md](architecture/public-deploy.md) (Addendum A2) | Backlog — new tech-debt item, found 2026-07-18. GitHub issue [#48](https://github.com/hoanghaithanh/Spark-Playbook/issues/48) filed, unmilestoned. `deploy-lan` (LAN-only stack) is unaffected — already fixed there via `DRIVER_UI_HOST=${LAN_IP}`. |
 | 40 | Multi-broker Kafka cluster & monitor — 5 sub-stories: (a) user-configurable "Kafka" section in the cluster-config drawer (1-5 brokers, default 3, RF=3/min-isr=2, folded into the existing single Spawn/Teardown action), (b) Kafka observability data layer (CLI-shellout, not KafkaAdminClient — see #50's ADR dead end), (c) JMX exporter for heap/GC and produce/consume latency plus per-broker idle-ratio metrics, (d) 4th tab in the existing Cluster Monitor panel built against a specific design mockup, (e) broker-kill fault-tolerance demo (ISR shrink/leader re-election) | L | [docs/requirements/multi-broker-kafka-cluster.md](requirements/multi-broker-kafka-cluster.md) | Backlog — requirements formalized 2026-07-19 (requirements-analyst) per the human-approved plan `for-18-i-want-lazy-candle.md`; explicitly amends `docs/architecture/kafka-streaming-infra.md` Decision D1 (reverses "Kafka is not a user-facing toggle" — see the new doc's Amends section). All 5 sub-stories (US-MBK1-5) have given/then acceptance criteria; two items flagged as genuinely open (exact JMX MBean names, exact Kafka CLI output-parsing shapes) rather than guessed. Filed under release milestone `v1.2 — Multi-Broker Kafka Cluster & Monitor` (GitHub milestone [#15](https://github.com/hoanghaithanh/Spark-Playbook/milestone/15)), not yet pulled into a sprint — GitHub issues for the 5 sub-stories are now filed: (a) [#56](https://github.com/hoanghaithanh/Spark-Playbook/issues/56), (b) [#57](https://github.com/hoanghaithanh/Spark-Playbook/issues/57), (c) [#58](https://github.com/hoanghaithanh/Spark-Playbook/issues/58), (d) [#59](https://github.com/hoanghaithanh/Spark-Playbook/issues/59), (e) [#60](https://github.com/hoanghaithanh/Spark-Playbook/issues/60). **Sequencing note:** must land before v1.1's still-unstarted sub-stories (#52-#55, row #18) — those build the streaming producer/job/dashboard against whatever broker topology is running, so they should target the multi-broker cluster rather than inherit the single-node one from #50 (row #19). Mirrors how row #19 was itself a prerequisite consumed by row #18. **Sub-story status:** (a)/#56 — Done, human sign-off 2026-07-20 (`docs/qa/multi-broker-kafka-cluster-acceptance.md`); (b)/#57 — Done, human sign-off 2026-07-20 (`docs/qa/kafka-observability-layer-acceptance.md`); (c)-(e)/#58-#60 still open, unstarted. |
+| 41 | Kafka curriculum topic: `kafka-architecture-kraft` — brokers/controllers/partitions/replication in a KRaft (no ZooKeeper) cluster, contrasted against the legacy ZooKeeper-coordinated architecture | M | [docs/requirements/kafka-curriculum.md](requirements/kafka-curriculum.md) (US-KC1) | Backlog (Sprint 12) — split out of the former combined row #41 2026-07-20 (project-manager), matching the "one topic, one story" grain the rest of this table already uses for curriculum content. Size bumped S->M 2026-07-20 to absorb the one-time topics-index grouping build (D-KC1: new `track` manifest field, `app/topics/loader.py` change, template change) bundled into this issue since it is the first Kafka topic to ship and needs somewhere to render. Pulled into **Sprint 12 (GitHub milestone [#16](https://github.com/hoanghaithanh/Spark-Playbook/milestone/16), 2026-08-03 - 2026-08-07)** 2026-07-20; GitHub issue [#62](https://github.com/hoanghaithanh/Spark-Playbook/issues/62) filed and milestoned. |
+| 42 | Kafka curriculum topic: `kafka-topics-partitions` — partition count/key choice determining message ordering and distribution, keyed vs. unkeyed produce, per-partition ordering (no cross-partition guarantee) | S | [docs/requirements/kafka-curriculum.md](requirements/kafka-curriculum.md) (US-KC2) | Backlog (Sprint 12) — split out of the former combined row #41 2026-07-20. Fully buildable today, no blockers. Pulled into **Sprint 12 (GitHub milestone [#16](https://github.com/hoanghaithanh/Spark-Playbook/milestone/16), 2026-08-03 - 2026-08-07)** 2026-07-20; GitHub issue [#63](https://github.com/hoanghaithanh/Spark-Playbook/issues/63) filed and milestoned. |
+| 43 | Kafka curriculum topic: `kafka-producers-delivery` — `acks`/idempotence/retries under induced failure, at-least-once vs. at-most-once vs. (practically) exactly-once producer-side behavior, measured not asserted | M | [docs/requirements/kafka-curriculum.md](requirements/kafka-curriculum.md) (US-KC3) | Backlog (Sprint 12) — split out of the former combined row #41 2026-07-20. **Status corrected 2026-07-20**: previously marked "fully buildable today, no blockers" — wrong. The architect's US-KC11 spike (`docs/architecture/kafka-curriculum.md` D-KC3) found `kafka-python==2.0.2` has no idempotent-producer support at all (confirmed directly against the library source). Still fully buildable today with no new dependency — the idempotence bullet now uses the same CLI-subprocess fallback (`kafka-console-producer.sh --producer-property enable.idempotence=true`) already established for US-KC11; the `acks`-only bullets are unaffected (`acks` is a real `kafka-python` config). Pulled into **Sprint 12 (GitHub milestone [#16](https://github.com/hoanghaithanh/Spark-Playbook/milestone/16), 2026-08-03 - 2026-08-07)** 2026-07-20; GitHub issue [#64](https://github.com/hoanghaithanh/Spark-Playbook/issues/64) filed and milestoned. |
+| 44 | Kafka curriculum topic: `kafka-consumers-groups` — offset commits, consumer-group rebalancing, partition-bounded parallelism ceiling, manual-vs-auto-commit crash/restart behavior | M | [docs/requirements/kafka-curriculum.md](requirements/kafka-curriculum.md) (US-KC4) | Backlog (Sprint 12) — split out of the former combined row #41 2026-07-20. Fully buildable today, no blockers. Pulled into **Sprint 12 (GitHub milestone [#16](https://github.com/hoanghaithanh/Spark-Playbook/milestone/16), 2026-08-03 - 2026-08-07)** 2026-07-20; GitHub issue [#65](https://github.com/hoanghaithanh/Spark-Playbook/issues/65) filed and milestoned. |
+| 45 | Kafka curriculum topic: `kafka-replication-fault-tolerance` — manual broker kill, live leader election/ISR shrink-and-regrow, RF=3/min-isr=2 vs. an over-strict min-isr=3 contrast; independent of issue #60's in-app broker-kill panel (manual notebook exercise, same underlying `docker stop` mechanic) | M | [docs/requirements/kafka-curriculum.md](requirements/kafka-curriculum.md) (US-KC5) | Backlog — split out of the former combined row #41 2026-07-20. Fully buildable today (does not need #60 to ship). Not yet pulled into a sprint — see narrative section below. |
+| 46 | Kafka curriculum topic: `kafka-log-compaction-retention` — `cleanup.policy=compact` (latest-value-per-key survival, tombstone deletion) vs. `cleanup.policy=delete` (time-based segment aging), standalone (no v1.1 dependency) | M | [docs/requirements/kafka-curriculum.md](requirements/kafka-curriculum.md) (US-KC6) | Backlog — split out of the former combined row #41 2026-07-20. Fully buildable today, no blockers. Not yet pulled into a sprint — see narrative section below. |
+| 47 | ~~Kafka curriculum topic: `kafka-spark-structured-streaming`~~ — **FOLDED INTO v1.1, 2026-07-20** | — | [docs/requirements/kafka-curriculum.md](requirements/kafka-curriculum.md) (US-KC7) | **Closed — not an independent story.** Human resolved Open Question 1 on 2026-07-20: US-KC7 folds into v1.1's `structured-streaming` topic (issue [#53](https://github.com/hoanghaithanh/Spark-Playbook/issues/53), row #18, milestone #13) rather than shipping standalone. No GitHub issue filed for this row; its acceptance criteria carry forward as reference material for #53's implementation. The Kafka curriculum's independently-schedulable set is now 11 topics (rows #41-46, #48-52), not 12. |
+| 48 | Kafka curriculum topic: `kafka-serialization-schema-evolution` — schema registry + Avro/Protobuf produce/consume, backward-compatible vs. backward-incompatible schema change (registry-enforced rejection), contrasted against JSON's lack of enforcement | M/L (TBD) | [docs/requirements/kafka-curriculum.md](requirements/kafka-curriculum.md) (US-KC8) | Backlog — split out of the former combined row #41 2026-07-20. **GATED ON ARCHITECT INFRA DECISION** — needs a new compose-stack schema-registry service and a new driver-image Avro/Protobuf client library (G-KC6, resolved into scope 2026-07-20); product/library choice and resource-budget impact are architect calls, likely warranting its own ADR (comparable in kind to #50's Kafka-infra ADR). Not buildable until that ADR lands. |
+| 49 | Kafka curriculum topic: `kafka-performance-tuning` — measured throughput/latency sweeps across `linger.ms`/`batch.size`/`compression.type`, partition-count-vs-consumer-parallelism tie-in to `kafka-consumers-groups` | M | [docs/requirements/kafka-curriculum.md](requirements/kafka-curriculum.md) (US-KC9) | Backlog — split out of the former combined row #41 2026-07-20. Fully buildable today, no blockers. Not yet pulled into a sprint — see narrative section below. |
+| 50 | Kafka curriculum topic: `kafka-monitoring-observability` — consumer-group lag as the primary operational signal (demonstrable today); broker-level JVM heap/GC/request-latency sections **BLOCKED pending issue [#58](https://github.com/hoanghaithanh/Spark-Playbook/issues/58)** (JMX exporter, v1.2/milestone #15, open/unstarted), with [#59](https://github.com/hoanghaithanh/Spark-Playbook/issues/59) (Monitor UI tab) as a soft (not hard) dependency | M | [docs/requirements/kafka-curriculum.md](requirements/kafka-curriculum.md) (US-KC10) | Backlog — split out of the former combined row #41 2026-07-20. **Partially blocked** — the lag-only portion could ship standalone, but per G-KC4 ("honest status per topic") this topic is written as one story covering both; splitting the lag-only slice out further is a possible future call, not made here. Full topic not buildable until #58 ships. |
+| 51 | Kafka curriculum topic: `kafka-exactly-once-transactions` — idempotent-producer + transactional-API commit/abort visibility contrast (`read_committed` vs. `read_uncommitted`), tied back to Spark's own exactly-once sink semantics | M | [docs/requirements/kafka-curriculum.md](requirements/kafka-curriculum.md) (US-KC11) | Backlog — split out of the former combined row #41 2026-07-20. **NEEDS A PRE-ARCHITECTURE FEASIBILITY SPIKE** — `kafka-python==2.0.2`'s transactional producer support must be verified live against this repo's actual multi-broker topology before a design can be committed to (fallback: CLI-driven `kafka-console-producer.sh --transactional-id`, not a new pinned dependency). Spike timing (before vs. during the architect pass) is Open Question 5, left to the architect. Not buildable until the spike runs. |
+| 52 | Kafka curriculum topic: `kafka-multi-broker-cluster-ops` — the "go use the drawer knob yourself" exercise directly exercising #56's shipped broker-count field (1-5), rolling restart with continuous availability, under-replicated-partition signal during a simulated slow node | M | [docs/requirements/kafka-curriculum.md](requirements/kafka-curriculum.md) (US-KC12) | Backlog — split out of the former combined row #41 2026-07-20. Fully buildable today (depends only on #56, already shipped), no blockers. Not yet pulled into a sprint — see narrative section below. |
 
 ## Confirmed sprint plan (2026-07-16, human-approved; Sprint 4 milestoned 2026-07-16)
 
@@ -412,3 +424,126 @@ and milestone #14 closed via `gh api` PATCH-to-closed (0 open / 1 closed, no ope
 Backlog row #16 (UDF vs pandas UDF) status above is unchanged as already-accurate; nothing further
 to update here. Sprint 12 is not proposed in this pass — that's a separate sprint-planning step.
 
+
+## New body of work: Kafka Curriculum (learn Kafka itself) — pending milestone decision (2026-07-20)
+
+A new curriculum track — Kafka topics that teach Kafka as a distributed system in its own right,
+not Kafka-as-plumbing-under-a-PySpark-exercise — was approved by the human on 2026-07-20, via an
+interactive planning session (not yet captured as a saved plan file, unlike v1.0/v1.1/v1.2's
+plans). It adds 12 new `content/` topic folders (4 basic, 4 intermediate, 4 advanced — see backlog
+row #41) using the exact same shell/manifest/notebook pattern every existing topic already uses.
+Requirements formalized in `docs/requirements/kafka-curriculum.md` (requirements-analyst, 2026-07-20).
+
+**Scope expanded same-day by two further human decisions (2026-07-20, after reviewing the
+requirements doc):** (1) the topics-index page will visually group the 12 Kafka topics and the 15
+existing Spark topics into two tracks, so this is **no longer purely `app/`-code-free** — it needs a
+new manifest field plus a small `app/topics/loader.py` + template change; (2) US-KC8
+(`kafka-serialization-schema-evolution`) will get a real schema-registry + Avro/Protobuf demo, adding
+a new compose-stack service and driver-image dependency — comparable in kind to how Kafka itself
+was introduced as infra in #50's ADR, and likely warranting its own architecture doc. Both are
+recorded in `kafka-curriculum.md`'s "Resolved decisions" section and flow through to backlog row #41
+above.
+
+**Unlike v1.0/v1.1/v1.2, no release milestone is created by this update.** This body of work is
+wide (12 independently-shippable, mostly S/M-sized topics) rather than deep/multi-area the way
+v1.0 (Public Deploy), v1.1 (Live Market Data Streaming), and v1.2 (Multi-Broker Kafka Cluster &
+Monitor) were — it may fit more naturally as several ordinary curriculum sprints (the same pattern
+already used for rows #14/#15/#25/#29 in Sprint 5, or #27/#32/#26 in Sprint 6) than as its own
+release milestone. That call — new release milestone vs. fold into ordinary sprint cadence vs. some
+other grouping — is explicitly left to project-manager's next planning pass, per CLAUDE.md's
+milestone-ownership rule. No GitHub issues are filed yet either, matching how v1.1/v1.2 both left
+issue-filing until after their architect pass.
+
+**Two topics still carry real status caveats, not silently smoothed over** (see backlog row #41 and
+`kafka-curriculum.md` for full detail): US-KC10 (monitoring/observability) is partially blocked on
+v1.2's still-open #58/#59; US-KC11 (exactly-once/transactions) needs a feasibility spike before an
+architect can commit to a design. US-KC8 (serialization/schema evolution) is no longer
+blocked-on-missing-tooling — it's gated on an architect infra decision instead, now that a schema
+registry is confirmed in scope.
+
+**Relationship to v1.1/v1.2, restated for traceability:** this is additive, not a supersession or
+amendment of either — see `kafka-curriculum.md`'s "Relationship to existing docs" section for the
+specific overlap with v1.1's `structured-streaming` topic (US-KC7) and v1.2's broker-kill/JMX work
+(US-KC5/US-KC10).
+
+**Not pulled into any sprint yet.** Four open questions remain, explicitly deferred by the human
+until after project-manager and architect have reviewed this doc: US-KC7's standalone-vs-fold status,
+exact `order` values within each of the two now-grouped tracks, US-KC11's spike timing, and per-topic
+broker-count defaults.
+
+## Kafka Curriculum: milestone decision (2026-07-20, project-manager)
+
+**Decision: no new release milestone.** Weighing this against the release-scale reasoning used for
+v1.0/v1.1/v1.2 (each "multi-area work... different in character and size from a single curriculum
+sprint story"): those three were deep and tightly coupled — a handful of interdependent sub-stories
+that had to land together as one coherent release (containerize+proxy+TLS+hygiene; producer+job+
+dashboard+widget; drawer-config+observability-layer+JMX+UI-tab+demo). The Kafka curriculum is the
+opposite shape — 12 independently-shippable, mostly S/M topics, explicitly described by its own
+requirements doc as "wide... rather than deep/multi-area." It is structurally the same kind of body
+of work as `curriculum-topics-2026-07.md`'s earlier batch (US-C1-C10, ~9 stories formalized in one
+doc but never given a release milestone — each pulled into an ordinary sprint individually or in
+small pairs: rows #14/#15/#25/#29 into Sprint 5, #26/#27/#32 into Sprint 6, #28 into Sprint 8, #30
+into Sprint 9). The same treatment applies here: **backlog row #41 has been split into 12 individual
+per-topic rows (#41-#52 above)**, matching the "one topic, one story" grain the doc itself calls out,
+so each topic can be scheduled independently as it becomes ready — the same table shape every other
+curriculum topic in this backlog already uses.
+
+**No GitHub issues filed yet, for any of the 12.** This is a deliberate difference from v1.2's
+pattern (which filed all 5 sub-story issues under its release milestone immediately, before the
+architect pass) — that precedent fits release milestones, where all sub-stories are jointly scoped by
+one ADR at once. It does not fit here: 9 of the 12 topics are genuinely architect-blocked before any
+issue should be filed —
+- **US-KC1-KC4, KC6, KC7, KC9, KC12 (rows #41-44, 46-47, 49, 52)** are content-buildable today in
+  isolation, but all 27 topics' rendering (including these) changes once the topics-index grouping
+  (G-KC5) lands — a new manifest field, `app/topics/loader.py`, and template change that the human
+  has already approved in scope but left the mechanism (field name, per-track `order` semantics) to
+  the architect. Filing issues for these now, before that mechanism is decided, risks locking in a
+  stale manifest shape or forces a second pass later. This mirrors how Kafka infra itself (#50) was
+  explicitly routed "architect-first" before any developer work in Sprint 10, despite being a single
+  well-scoped story.
+- **US-KC8 (row #48)** is explicitly gated on an architect infra decision (schema registry product +
+  client library), not buildable at all until that lands.
+- **US-KC10 (row #50)** is partially blocked on v1.2's still-open #58/#59.
+- **US-KC11 (row #51)** needs a pre-architecture feasibility spike before a design can be committed
+  to.
+
+**Next step: an architect pass**, scoped to at minimum (a) the topics-index grouping mechanism
+(manifest field, per-track ordering, template change — affects all 27 existing/new topics), (b) the
+schema-registry infra decision for US-KC8 (likely its own ADR, comparable to `kafka-streaming-infra.md`),
+and (c) a call on when US-KC11's feasibility spike runs relative to the rest of the pass. This is a
+larger-than-typical architect pass for what would otherwise be ordinary content topics — flagged
+explicitly since 9 of the 12 stories nominally look "just content" but aren't fully unblocked until
+this lands. Only after that pass should the ready subset of topics be pulled into a sprint and get
+GitHub issues filed, one sprint's worth at a time, same as every prior curriculum batch.
+
+**Not deciding, and not foreclosing, the 4 open questions** (`kafka-curriculum.md`'s Open Questions
+1, 2, 5, 6 — US-KC7 standalone-vs-fold, exact per-track `order` values, US-KC11 spike timing,
+per-topic `kafka_broker_count` defaults): none of the 12 new backlog rows above assert a value for
+any of these; row #47 (US-KC7) explicitly flags Open Question 1 as unresolved, row #48 (US-KC8) and
+row #51 (US-KC11) explicitly route the gating decisions to the architect rather than guessing.
+
+**Sequencing note relative to active release milestones:** v1.1 (milestone #13, 4 open sub-story
+issues #52-#55) and v1.2 (milestone #15, 3 open sub-story issues #58-#60) remain the two active
+release milestones and are unaffected by this decision — the Kafka curriculum work is independent
+backlog scope, not folded into either. No sprint is currently active (Sprint 11/milestone #14 closed
+2026-07-20); Sprint 12 has not yet been proposed.
+
+## Sprint 12 execution (2026-07-20, project-manager)
+
+Human confirmed go on the previously proposed Sprint 12 scope. **Sprint 12 (GitHub milestone
+[#16](https://github.com/hoanghaithanh/Spark-Playbook/milestone/16), 2026-08-03 – 2026-08-07)**
+created and 4 issues filed and milestoned: [#62](https://github.com/hoanghaithanh/Spark-Playbook/issues/62)
+(`kafka-architecture-kraft`, row #41, bundles the D-KC1 topics-index grouping build),
+[#63](https://github.com/hoanghaithanh/Spark-Playbook/issues/63) (`kafka-topics-partitions`, row #42),
+[#64](https://github.com/hoanghaithanh/Spark-Playbook/issues/64) (`kafka-producers-delivery`, row #43),
+[#65](https://github.com/hoanghaithanh/Spark-Playbook/issues/65) (`kafka-consumers-groups`, row #44).
+
+**Note on Open Question 1 resolution:** since the "Kafka Curriculum: milestone decision" section
+above was written, the human resolved Open Question 1 — US-KC7 (`kafka-spark-structured-streaming`)
+folds into v1.1's `structured-streaming` topic (issue #53) rather than shipping standalone (see row
+#47, now closed/not-an-independent-story). This does not affect Sprint 12's scope; KC7 was never a
+candidate for this batch. The Kafka curriculum's independently-schedulable set is 11 topics (rows
+#41-46, #48-52), not 12, going forward.
+
+KC5/KC6/KC9/KC12, KC8/KC10/KC11 (gated), and KC7 (folded) remain deferred/unscheduled per the
+reasoning already recorded above; unaffected by this Sprint 12 pull.
