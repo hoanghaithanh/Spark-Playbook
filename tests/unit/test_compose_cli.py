@@ -30,6 +30,7 @@ def _args(**overrides):
         driver_memory_gb=2,
         shuffle_partitions=200,
         include_kafka=False,
+        kafka_broker_count=3,
     )
     base.update(overrides)
     return compose_cli.argparse.Namespace(**base)
@@ -49,27 +50,53 @@ class TestIncludeKafkaFlagDefaultsFalse:
 
 class TestValidateRangesKafkaCeilingMirror:
     """Mirrors app/lifecycle/renderer.py::validate()'s ceiling accounting
-    (TestIncludeKafka in tests/unit/test_renderer.py) -- same +2GB when set,
-    same KAFKA_MEMORY_GB constant, kept independently in sync per the ADR's
-    Consequences note that the CLI mirror is 'the easy one to forget'."""
+    (TestIncludeKafka in tests/unit/test_renderer.py) -- same
+    KAFKA_MEMORY_GB * kafka_broker_count formula (docs/architecture/
+    multi-broker-kafka-cluster.md D-MBK4, supersedes the flat +2GB), same
+    32GB ceiling (the 48GB->32GB drift fix OQ-MBK4 flagged), kept
+    independently in sync per the ADR's Consequences note that the CLI
+    mirror is 'the easy one to forget'."""
 
     def test_include_kafka_false_does_not_raise_for_default_config(self):
         compose_cli._validate_ranges(_args(include_kafka=False))  # should not raise/exit
 
-    def test_include_kafka_true_does_not_raise_when_still_under_the_48gb_ceiling(self):
-        # 1 + 3*4 + 2 + 2(kafka) = 17GB, well under the CLI's 48GB sanity ceiling.
-        compose_cli._validate_ranges(_args(include_kafka=True))  # should not raise/exit
+    def test_include_kafka_true_does_not_raise_when_still_under_the_32gb_ceiling(self):
+        # 1 + 3*4 + 2 + 2*3(kafka, 3 brokers) = 21GB, under the CLI's 32GB ceiling.
+        compose_cli._validate_ranges(_args(include_kafka=True, kafka_broker_count=3))  # should not raise/exit
 
     def test_include_kafka_true_pushes_an_otherwise_in_budget_config_over_the_cli_ceiling(self, capsys):
-        # Without Kafka: 1 + 5*8 + 8 = 49 -> already over 48GB regardless of Kafka;
-        # use a config exactly at 48 without Kafka so the +2GB is what tips it.
-        # 1 + 5*8 + 5 = 46; +2 (kafka) = 48 -> still exactly at ceiling, passes.
-        compose_cli._validate_ranges(_args(worker_count=5, worker_memory_gb=8, driver_memory_gb=5, include_kafka=True))
+        # Without Kafka: 1 + 3*4 + 8 = 21GB, under 32GB.
+        # +2*3 (kafka, 3 brokers) = 27GB -> still under the ceiling, passes.
+        compose_cli._validate_ranges(
+            _args(worker_count=3, worker_memory_gb=4, driver_memory_gb=8, include_kafka=True, kafka_broker_count=3)
+        )
 
-        # 1 + 5*8 + 6 = 47 without Kafka (under ceiling); +2 (kafka) = 49 -> now rejected.
+        # 1 + 5*4 + 8 = 29GB without Kafka (under ceiling); +2*2 (kafka, 2
+        # brokers) = 33GB -> now rejected.
         with pytest.raises(SystemExit):
             compose_cli._validate_ranges(
-                _args(worker_count=5, worker_memory_gb=8, driver_memory_gb=6, include_kafka=True)
+                _args(worker_count=5, worker_memory_gb=4, driver_memory_gb=8, include_kafka=True, kafka_broker_count=2)
             )
         captured = capsys.readouterr()
-        assert "49GB" in captured.err
+        assert "33GB" in captured.err
+
+
+class TestValidateRangesKafkaBrokerCountRange:
+    """docs/architecture/multi-broker-kafka-cluster.md D-MBK4: CLI mirror of
+    renderer.validate()'s kafka_broker_count range check (1-5) when
+    include_kafka is set."""
+
+    def test_broker_count_too_low_rejected(self):
+        with pytest.raises(SystemExit):
+            compose_cli._validate_ranges(_args(include_kafka=True, kafka_broker_count=0))
+
+    def test_broker_count_too_high_rejected(self):
+        with pytest.raises(SystemExit):
+            compose_cli._validate_ranges(_args(include_kafka=True, kafka_broker_count=6))
+
+    def test_out_of_range_broker_count_ignored_when_kafka_excluded(self):
+        compose_cli._validate_ranges(_args(include_kafka=False, kafka_broker_count=99))  # should not raise/exit
+
+    def test_boundary_values_pass(self):
+        compose_cli._validate_ranges(_args(include_kafka=True, kafka_broker_count=1))
+        compose_cli._validate_ranges(_args(include_kafka=True, kafka_broker_count=5))

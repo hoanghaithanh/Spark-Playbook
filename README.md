@@ -55,14 +55,35 @@ skew & salting, checkpointing, fault tolerance & lineage, and UDF vs pandas UDF 
   [Deploy (single-user, remote)](#deploy-single-user-remote) below for the full design and operator
   checklist.
 
-**Currently in flight:** Sprint 11 (GitHub milestone #14, 2026-07-27 – 2026-07-31) is active. Its
-sole story, issue #51 (UDF vs pandas UDF serialization cost), shipped, was code-reviewed clean, and
-passed acceptance validation with human sign-off (`docs/qa/udf-pandas-udf-acceptance.md`), but the
-sprint's own close-out (retro + milestone close) hasn't run yet.
+- **Kafka infra** (Sprint 10, GitHub issue #50, closed 2026-07-19) — conditional Kafka (KRaft)
+  in the compose template, since upgraded to a real, user-configurable **multi-broker** cluster
+  (1–5 brokers, default 3, RF=3 / `min.insync.replicas=2`) as `v1.2 — Multi-Broker Kafka Cluster
+  & Monitor`'s first sub-story (issue #56, closed 2026-07-20). A "Kafka" section now lives in the
+  same cluster-config drawer used for Spark — check the box, pick a broker count, spawn/tear down
+  together in one action, on any topic page, not just a streaming one. See
+  [`docs/architecture/kafka-streaming-infra.md`](docs/architecture/kafka-streaming-infra.md) and
+  [`docs/architecture/multi-broker-kafka-cluster.md`](docs/architecture/multi-broker-kafka-cluster.md).
+- **Sprint 11 — UDF vs pandas UDF Serialization Cost** (GitHub milestone #14, closed 2026-07-20) —
+  a new curriculum topic (`content/udf-pandas-udf/`) comparing a row-at-a-time `udf()` against a
+  vectorized `pandas_udf()`, with a measured, never-hardcoded timing comparison and a live-verified
+  plan-node distinction (`BatchEvalPython` vs `ArrowEvalPython`). Acceptance-validated live against
+  a real cluster, all 5 acceptance criteria PASS (`docs/qa/udf-pandas-udf-acceptance.md`).
 
-**Not yet started:** the rest of Phase 3 (streaming/Kafka). Kafka infra itself shipped in Sprint 10
-(issue #50), but `v1.1 — Live Market Data Streaming`'s remaining sub-stories (issues #52-#55) and
-the newly approved `v1.2 — Multi-Broker Kafka Cluster & Monitor` release milestone haven't started.
+**Currently in flight:**
+- **v1.1 — Live Market Data Streaming** (GitHub milestone #13) — real Coinbase/Finnhub-sourced
+  prices flowing through Kafka into a real Spark Structured Streaming job, plus a live price
+  dashboard. Requirements and architecture are done; 4 sub-story issues (#52–#55) are filed;
+  development hasn't started yet (blocked on a Finnhub API key for the stock-data half — Coinbase's
+  crypto side needs no key). See
+  [`docs/requirements/live-market-data-streaming.md`](docs/requirements/live-market-data-streaming.md).
+- **v1.2 — Multi-Broker Kafka Cluster & Monitor** (GitHub milestone #15) — sub-story (a), the
+  multi-broker topology above, is done and signed off. The observability data layer, a JMX
+  exporter, a Kafka Cluster Monitor panel (a 4th tab in the existing Cluster Monitor, built
+  against a design mockup), and a broker-kill fault-tolerance demo (issues #57–#60) remain. See
+  [`docs/requirements/multi-broker-kafka-cluster.md`](docs/requirements/multi-broker-kafka-cluster.md).
+
+**Not yet started:** the Structured Streaming curriculum topic itself (content + notebook, v1.1's
+remaining sub-stories) and the Kafka Cluster Monitor panel UI (v1.2's remaining sub-stories).
 
 For the full story-by-story history, acceptance evidence, and prioritized backlog, see
 [`docs/backlog.md`](docs/backlog.md). For the phased roadmap and architecture in detail, see

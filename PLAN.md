@@ -170,11 +170,23 @@ each other *inside* the network by container DNS name.
   |   |  7079 blockManager.port       |                                        |
   |   +-------------------------------+                                        |
   |                                                                            |
-  |   [streaming topics only]  +----------------+                              |
-  |                            | kafka (KRaft)  | 9092                         |
-  |                            +----------------+                              |
+  |   [opt-in via the cluster drawer]  +----------------+  +----------------+   |
+  |                                    | kafka-1 (KRaft)|  | kafka-N (KRaft)|   |
+  |                                    | 9092 (+9093 in)|  | 9092+100(N-1)  |   |
+  |                                    +----------------+  +----------------+   |
   ==============================================================================
 ```
+
+**Kafka superseded this diagram's original single-broker sketch (2026-07-20).** Kafka is now a
+real, user-configurable multi-broker KRaft cluster (1–5 combined broker+controller nodes, default
+3, RF=3/`min.insync.replicas=2`), toggled from the same cluster-config drawer as the Spark
+settings — not gated to `requires_kafka: true` topics only, and not a single fixed-port service.
+Each broker gets its own loopback host port (`127.0.0.1:9092`, `:9192`, `:9292`, ...) because a
+host client (the FastAPI app, a host-run producer) must be able to reach whichever broker actually
+leads a given partition, not just broker 1. See
+`docs/architecture/kafka-streaming-infra.md` (the original single-broker design) and
+`docs/architecture/multi-broker-kafka-cluster.md` (the multi-broker upgrade, which explicitly
+amends that design's D1) for the current, authoritative design.
 
 **Docker network topology.** Every stack runs under a fixed compose **project name `sparkpb`**, giving a dedicated
 bridge network `sparkpb_default` (referred to here as `sparkpb-net`). Containers get stable service names
@@ -192,7 +204,7 @@ resolve to `spark-driver` — no host IPs anywhere inside the cluster.
 | 4040 | spark-driver:4040 | Driver application UI **and** the metrics REST API `/api/v1/...` | Browser + `app_client` |
 | 8888 | spark-driver:8888 | JupyterLab (embedded in iframe) | Browser |
 | 8081 | spark-worker-1:8081 | Worker UI (optional, for deep links) | Browser |
-| 9092 | kafka:9092 | Kafka broker (streaming topics only) | Producer + driver |
+| 9092, 9192, 9292, ... | kafka-N:9092 | One loopback port per Kafka broker (opt-in, drawer-configured 1-5) | Producer + driver + host clients |
 
 **Clarification on "the Spark REST API".** There are two distinct HTTP surfaces and the design uses both:
 - **Cluster/master JSON** at `http://localhost:8080/json/` — returns the alive-worker count/cores/memory. Used for
@@ -216,7 +228,8 @@ resolve to `spark-driver` — no host IPs anywhere inside the cluster.
 | `driver_memory_gb` | 2 | fixed | `spark.driver.memory` |
 | `shuffle_partitions` | 200 | any positive int (**UI range locked to 1–300 as of 2026-07-15 in the topic-page shell redesign** — see `docs/requirements/topic-shell-redesign.md` US-SH2; this row still governs the underlying config semantics) | `spark.sql.shuffle.partitions` |
 | `aqe_enabled` | false | on/off | `spark.sql.adaptive.enabled` |
-| `include_kafka` | false | bool (US-3.1) | conditionally renders the `kafka` service |
+| `include_kafka` | false | bool, **user-facing drawer toggle since 2026-07-20** (was manifest-only, see below) | conditionally renders `kafka_broker_count` Kafka broker services |
+| `kafka_broker_count` | 3 | 1–5 | number of combined broker+controller KRaft nodes rendered when `include_kafka` is set |
 | `project_name` | `sparkpb` | fixed | compose `-p` project (single-slot) |
 
 These land in two rendered artifacts: `docker-compose.yml` (services, ports, network, mounts) and a
@@ -225,8 +238,11 @@ notebook already has `master`, `shuffle.partitions`, `aqe`, and the driver netwo
 learner writes no connection boilerplate (US-0.5).
 
 **Resource ceiling (US-1.2 sanity check, pre-spawn).** Before rendering, the app computes
-`master(1GB) + Σ worker_memory_gb + driver(2GB) + (kafka ≈ 2GB if included)` and rejects the configuration if it
-exceeds a conservative ceiling with a clear message, *before* any container starts.
+`master(1GB) + Σ worker_memory_gb + driver(2GB) + (kafka_memory_gb × kafka_broker_count, if included)`
+and rejects the configuration if it exceeds a conservative ceiling with a clear message, *before*
+any container starts. (Originally sketched as a flat `~2GB if included`; the Kafka term now scales
+with the drawer-configured broker count, per `docs/architecture/multi-broker-kafka-cluster.md`
+D-MBK4 — at the default 3 brokers this is +6GB.)
 
 **Implemented value: 32GB, not the 48GB originally sketched here.** Phase 1 acceptance validation (issue #6) found
 that 48GB was unreachable through the UI's own documented ranges — `worker_count` ≤ 5 and `worker_memory_gb` ≤ 8
@@ -560,6 +576,22 @@ ADR `docs/architecture/realtime-monitoring-dashboard.md` (D-A–D-E) for the res
 
 ### Phase 3 — Streaming + Kafka
 
+**Status update (2026-07-20):** the original single-broker sketch below shipped as issue #50
+(`docs/architecture/kafka-streaming-infra.md`), then was upgraded to a real, drawer-configurable
+multi-broker cluster (issue #56, `docs/architecture/multi-broker-kafka-cluster.md`) — Kafka is no
+longer gated to `requires_kafka: true` topics only, and now genuinely demonstrates replication/ISR/
+leader-election, not just compose-lifecycle plumbing. The curriculum content itself
+(`content/structured-streaming/`) and the observability/monitor-panel work below are tracked as
+their own release milestones, not folded back into this section:
+- **`v1.1 — Live Market Data Streaming`** (`docs/requirements/live-market-data-streaming.md`) —
+  real Coinbase/Finnhub market data through Kafka into a real Structured Streaming job (US-3.2's
+  producer, US-3.3's topic + live progress chart), superseding the synthetic-producer framing
+  originally sketched here.
+- **`v1.2 — Multi-Broker Kafka Cluster & Monitor`** (`docs/requirements/multi-broker-kafka-cluster.md`) —
+  the multi-broker topology (done) plus a Kafka Cluster Monitor dashboard panel, JMX metrics, and a
+  broker-kill fault-tolerance demo (in progress).
+
+Original sketch, kept for history:
 - Conditional `kafka` (KRaft, no ZooKeeper) service in the compose template, included only when
   `requires_kafka: true`, within the resource ceiling (US-3.1).
 - `tools/kafka_producer/` — rate-controlled synthetic producer; checkpoint recovery genuinely works (US-3.2).

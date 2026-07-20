@@ -23,9 +23,13 @@ class ClusterParams:
     driver_memory_gb: int = config.DEFAULTS["driver_memory_gb"]
     shuffle_partitions: int = config.DEFAULTS["shuffle_partitions"]
     aqe_enabled: bool = config.DEFAULTS["aqe_enabled"]
-    # Kafka ADR D1: render-time flag driven by Topic.requires_kafka, not a
-    # user-facing toggle. Defaults false so every existing spawn is unaffected.
+    # Multi-broker Kafka ADR (docs/architecture/multi-broker-kafka-cluster.md
+    # D-MBK1, supersedes #50's D1): now a genuine drawer-driven toggle read
+    # from the spawn form, not solely from Topic.requires_kafka -- the topic
+    # manifest only pre-checks the form's default. Defaults false so every
+    # existing non-Kafka spawn is unaffected.
     include_kafka: bool = False
+    kafka_broker_count: int = config.DEFAULTS["kafka_broker_count"]
 
 
 @dataclass
@@ -66,9 +70,12 @@ def validate(params: ClusterParams) -> ValidationResult:
         + params.driver_memory_gb
     )
     if params.include_kafka:
-        # Kafka ADR (docs/architecture/kafka-streaming-infra.md) resource-ceiling
-        # accounting: +2GB conservative reservation when the broker is included.
-        total_gb += config.KAFKA_MEMORY_GB
+        lo, hi = config.KAFKA_BROKER_COUNT_RANGE
+        if not (lo <= params.kafka_broker_count <= hi):
+            errors.append(f"kafka_broker_count must be {lo}-{hi}")
+        # Multi-broker Kafka ADR D-MBK4: Kafka's contribution scales with
+        # broker count, not a flat reservation (supersedes #50's flat +2GB).
+        total_gb += config.KAFKA_MEMORY_GB * params.kafka_broker_count
     if total_gb > config.RESOURCE_CEILING_GB:
         errors.append(
             f"requested config totals ~{total_gb}GB, exceeding the "
@@ -102,6 +109,7 @@ def render(params: ClusterParams) -> None:
         "shuffle_partitions": params.shuffle_partitions,
         "aqe_enabled": params.aqe_enabled,
         "include_kafka": params.include_kafka,
+        "kafka_broker_count": params.kafka_broker_count,
         "public_origin": config.PUBLIC_ORIGIN,
     }
 

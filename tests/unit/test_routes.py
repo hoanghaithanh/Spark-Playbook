@@ -132,17 +132,30 @@ class TestSpawnValid:
         mock_spawn.assert_awaited_once()
 
 
-class TestSpawnThreadsIncludeKafkaFromTopicManifest:
-    """docs/architecture/kafka-streaming-infra.md D1: spawn_cluster() sets
-    `include_kafka=topic.requires_kafka` on the ClusterParams it hands to
-    manager.spawn() -- it is not a form field, so this must come from the
-    loaded Topic, not from the request body. Verified by inspecting the
-    actual ClusterParams manager.spawn() was called with, for both a
-    non-streaming topic (include_kafka False, R-K1) and a streaming one
-    (include_kafka True) via a synthetic manifest (no shipped topic
-    currently sets requires_kafka: true)."""
+class TestSpawnIncludeKafkaFromForm:
+    """docs/architecture/multi-broker-kafka-cluster.md D-MBK1 (the D1
+    reversal): spawn_cluster() reads `include_kafka`/`kafka_broker_count`
+    from the submitted FORM, not from `topic.requires_kafka` directly --
+    the manifest only pre-checks the drawer's default checked-state
+    (see TestPanelContextKafkaDefaults below), it never overrides what was
+    actually submitted. Verified in both directions per US-MBK1's
+    acceptance criteria, via a synthetic requires_kafka: true topic and the
+    existing requires_kafka: false partitioning-shuffle topic."""
 
-    def test_non_streaming_topic_threads_include_kafka_false(self, monkeypatch):
+    def _write_streaming_topic(self, tmp_path):
+        topic_dir = tmp_path / "streaming-topic"
+        topic_dir.mkdir()
+        (topic_dir / "manifest.yaml").write_text(
+            yaml.dump({
+                "id": "streaming-topic", "title": "Streaming Topic", "content": "concept.md",
+                "notebook": "notebook.ipynb", "requires_kafka": True,
+            }),
+            encoding="utf-8",
+        )
+        (topic_dir / "concept.md").write_text("# ok\n\n## What it is\n\nblurb.\n", encoding="utf-8")
+        (topic_dir / "notebook.ipynb").write_text("{}", encoding="utf-8")
+
+    def test_non_streaming_topic_no_kafka_field_submitted_stays_false(self, monkeypatch):
         ready_status = _status(ClusterState.READY, message="READY", alive_workers=3)
         mock_spawn = AsyncMock(return_value=SpawnOutcome(ok=True, status=ready_status))
         monkeypatch.setattr(topics_module.manager, "spawn", mock_spawn)
@@ -158,7 +171,65 @@ class TestSpawnThreadsIncludeKafkaFromTopicManifest:
         params_arg = mock_spawn.await_args.args[0]
         assert params_arg.include_kafka is False
 
-    def test_streaming_topic_threads_include_kafka_true(self, tmp_path, monkeypatch):
+    def test_requires_kafka_topic_submitted_without_include_kafka_stays_false(self, tmp_path, monkeypatch):
+        """(a) A requires_kafka: true topic's spawn form submitted WITHOUT
+        include_kafka checked -> include_kafka=False is honored. The
+        manifest only pre-checks the drawer's default -- it must not
+        silently override an unchecked box at spawn time (the D1
+        reversal's whole point)."""
+        self._write_streaming_topic(tmp_path)
+
+        ready_status = _status(ClusterState.READY, message="READY", alive_workers=3)
+        mock_spawn = AsyncMock(return_value=SpawnOutcome(ok=True, status=ready_status))
+        monkeypatch.setattr(topics_module.manager, "spawn", mock_spawn)
+        monkeypatch.setattr(topics_module.manager, "status", lambda: ready_status)
+
+        with patch.object(config, "CONTENT_DIR", tmp_path):
+            resp = client.post(
+                "/topics/streaming-topic/spawn",
+                # include_kafka intentionally omitted -- as if the learner unchecked it.
+                data={"worker_count": 3, "worker_cores": 2, "worker_memory_gb": 4, "shuffle_partitions": 200},
+            )
+
+        assert resp.status_code == 200
+        mock_spawn.assert_awaited_once()
+        params_arg = mock_spawn.await_args.args[0]
+        assert params_arg.include_kafka is False
+
+    def test_non_streaming_topic_submitted_with_include_kafka_checked_honored(self, monkeypatch):
+        """(b) A requires_kafka: false topic's spawn form submitted WITH
+        include_kafka checked and a broker count -> include_kafka=True and
+        the broker count are honored -- Kafka is available on any topic,
+        not gated to streaming topics only."""
+        ready_status = _status(ClusterState.READY, message="READY", alive_workers=3)
+        mock_spawn = AsyncMock(return_value=SpawnOutcome(ok=True, status=ready_status))
+        monkeypatch.setattr(topics_module.manager, "spawn", mock_spawn)
+        monkeypatch.setattr(topics_module.manager, "status", lambda: ready_status)
+
+        resp = client.post(
+            "/topics/partitioning-shuffle/spawn",
+            data={
+                "worker_count": 3, "worker_cores": 2, "worker_memory_gb": 4, "shuffle_partitions": 200,
+                "include_kafka": "true", "kafka_broker_count": 4,
+            },
+        )
+
+        assert resp.status_code == 200
+        mock_spawn.assert_awaited_once()
+        params_arg = mock_spawn.await_args.args[0]
+        assert params_arg.include_kafka is True
+        assert params_arg.kafka_broker_count == 4
+
+
+class TestPanelContextKafkaDefaults:
+    """docs/architecture/multi-broker-kafka-cluster.md D-MBK1's other half:
+    `topic.requires_kafka` still pre-checks the drawer's "Include Kafka" box
+    by default (via `_cluster_form.html`'s `{% if topic.requires_kafka %}
+    checked{% endif %}`) -- a UI-level default, not a spawn override.
+    Verified via the rendered GET /topics/<id> page markup, the same way
+    TestTopicPage checks rendered content."""
+
+    def test_requires_kafka_true_topic_renders_kafka_checkbox_pre_checked(self, tmp_path):
         topic_dir = tmp_path / "streaming-topic"
         topic_dir.mkdir()
         (topic_dir / "manifest.yaml").write_text(
@@ -171,21 +242,21 @@ class TestSpawnThreadsIncludeKafkaFromTopicManifest:
         (topic_dir / "concept.md").write_text("# ok\n\n## What it is\n\nblurb.\n", encoding="utf-8")
         (topic_dir / "notebook.ipynb").write_text("{}", encoding="utf-8")
 
-        ready_status = _status(ClusterState.READY, message="READY", alive_workers=3)
-        mock_spawn = AsyncMock(return_value=SpawnOutcome(ok=True, status=ready_status))
-        monkeypatch.setattr(topics_module.manager, "spawn", mock_spawn)
-        monkeypatch.setattr(topics_module.manager, "status", lambda: ready_status)
-
         with patch.object(config, "CONTENT_DIR", tmp_path):
-            resp = client.post(
-                "/topics/streaming-topic/spawn",
-                data={"worker_count": 3, "worker_cores": 2, "worker_memory_gb": 4, "shuffle_partitions": 200},
-            )
+            resp = client.get("/topics/streaming-topic")
 
         assert resp.status_code == 200
-        mock_spawn.assert_awaited_once()
-        params_arg = mock_spawn.await_args.args[0]
-        assert params_arg.include_kafka is True
+        checkbox_pos = resp.text.index('name="include_kafka"')
+        checkbox_tag = resp.text[checkbox_pos - 40 : checkbox_pos + 120]
+        assert "checked" in checkbox_tag
+
+    def test_requires_kafka_false_topic_renders_kafka_checkbox_unchecked(self):
+        resp = client.get("/topics/partitioning-shuffle")
+
+        assert resp.status_code == 200
+        checkbox_pos = resp.text.index('name="include_kafka"')
+        checkbox_tag = resp.text[checkbox_pos - 40 : checkbox_pos + 120]
+        assert "checked" not in checkbox_tag
 
 
 class TestSpawnInvalidParams:

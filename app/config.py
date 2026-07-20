@@ -133,12 +133,19 @@ DEFAULTS = {
     "driver_memory_gb": 2,
     "shuffle_partitions": 200,
     "aqe_enabled": False,
+    # Multi-broker Kafka ADR (docs/architecture/multi-broker-kafka-cluster.md
+    # D-MBK1): user-facing drawer default, mirrors worker_count's pattern.
+    "kafka_broker_count": 3,
 }
 
 # Ranges (PLAN.md §2 / US-1.2).
 WORKER_COUNT_RANGE = (1, 5)
 WORKER_CORES_RANGE = (1, 4)
 WORKER_MEMORY_GB_RANGE = (1, 8)
+
+# Multi-broker Kafka ADR D-MBK4: broker count is a genuine user-facing range,
+# 1-5 brokers, mirroring WORKER_COUNT_RANGE's shape.
+KAFKA_BROKER_COUNT_RANGE = (1, 5)
 
 # Shuffle-partitions UI range (topic-shell redesign, US-SH2 -- settled
 # 2026-07-15). PLAN.md §2's underlying `shuffle_partitions` template variable
@@ -190,6 +197,10 @@ MASTER_MEMORY_GB = 1
 # streaming topic's `include_kafka` flag is set. The broker's actual heap is
 # capped far lower (KAFKA_HEAP_OPTS 512MB in the compose template) -- this is
 # a deliberate margin (JVM off-heap, page cache), not a hard requirement.
+#
+# Multi-broker Kafka ADR (docs/architecture/multi-broker-kafka-cluster.md
+# D-MBK4): this per-broker figure is now multiplied by kafka_broker_count in
+# renderer.validate() / compose/cli.py::_validate_ranges, not added flat.
 KAFKA_MEMORY_GB = 2
 
 # Readiness wait bounds (PLAN.md §2).
@@ -241,3 +252,31 @@ DASHBOARD_SKEW_MEDIAN_MULTIPLE = 1.5
 # the template (ADR D-C caveat: CPU% normalization needs the real limit).
 DASHBOARD_MASTER_CPU_CORES = 1.0
 DASHBOARD_DRIVER_CPU_CORES = 2.0
+
+# Kafka broker CPU limit (compose template's kafka service has no explicit
+# `deploy.resources.limits.cpus` override -- every broker runs uncapped in
+# the same 1-core-equivalent budget class as master, per D-MBK5's normalize-
+# against-1-core note).
+DASHBOARD_KAFKA_CPU_CORES = 1.0
+
+# Multi-broker Kafka ADR D-MBK5: heavier CLI shellouts run on a slower
+# sub-cadence than the base 2s collector cycle -- every Nth cycle, reusing
+# the last KafkaSnapshot between refreshes. Sub-cadence widening is the
+# tunable knob the ADR's own risk section (R-MBK3) anticipates if concurrent
+# JVM-startup CLI execs spike broker CPU; the per-call CLI timeout below is
+# a separate, unrelated knob the ADR doesn't name.
+#
+# DEVIATION FROM THE ADR (live-verified, issue #57): the ADR estimated a
+# concurrent (asyncio.gather) pull of ~7 kafka-*.sh CLI calls would take
+# "≈ the slowest single call (~2-3s wall clock)", supporting a 5-cycle
+# (~10s) default. Measured live against a real 3-broker spawn: a single
+# call takes ~1.8s, but 6 concurrent calls against the same 1-core-limited
+# broker container take ~12s -- essentially serialized, not parallel,
+# because the CLI tools are CPU-bound during JVM startup and the broker's
+# `deploy.resources.limits.cpus` caps it at 1 core (exactly R-MBK3's
+# flagged risk, confirmed rather than hypothetical). 10 cycles (~20s) gives
+# headroom above the measured ~12s pull duration: the refresh now runs as a
+# detached background task (issue #57 finding 1, `collect_once()` no longer
+# blocks on it), but the cadence still needs to stay comfortably above the
+# pull duration so a refresh reliably finishes before the next one is due.
+KAFKA_COLLECTOR_SUBCADENCE_CYCLES = 10
