@@ -36,10 +36,10 @@ app (topic page, cluster control panel, embedded JupyterLab — `docs/acceptance
 Phase 2 self-check annotation engine, the Phase 2.5 realtime monitoring dashboard
 (`docs/acceptance/phase-2-5.md`), the unified topic-page shell (Concept/Notebook/Self-check tabs,
 cluster-config drawer, breadcrumb switcher), and a data-driven topics-index landing page (`GET /`,
-one card per `content/*/manifest.yaml` topic, no hardcoded list). 14 curriculum topics are built:
+one card per `content/*/manifest.yaml` topic, no hardcoded list). 15 curriculum topics are built:
 partitioning/shuffle, join strategies, bucketing, AQE, Catalyst plans, DAG & lazy evaluation,
 caching & persistence, window functions, serialization formats, executor tuning, memory management,
-skew & salting, checkpointing, and fault tolerance & lineage.
+skew & salting, checkpointing, fault tolerance & lineage, and UDF vs pandas UDF serialization cost.
 
 **Shipped:**
 - **v1.0 — Public Deploy** (GitHub milestone #8, closed 2026-07-19) — implemented and
@@ -63,10 +63,13 @@ skew & salting, checkpointing, and fault tolerance & lineage.
   together in one action, on any topic page, not just a streaming one. See
   [`docs/architecture/kafka-streaming-infra.md`](docs/architecture/kafka-streaming-infra.md) and
   [`docs/architecture/multi-broker-kafka-cluster.md`](docs/architecture/multi-broker-kafka-cluster.md).
+- **Sprint 11 — UDF vs pandas UDF Serialization Cost** (GitHub milestone #14, closed 2026-07-20) —
+  a new curriculum topic (`content/udf-pandas-udf/`) comparing a row-at-a-time `udf()` against a
+  vectorized `pandas_udf()`, with a measured, never-hardcoded timing comparison and a live-verified
+  plan-node distinction (`BatchEvalPython` vs `ArrowEvalPython`). Acceptance-validated live against
+  a real cluster, all 5 acceptance criteria PASS (`docs/qa/udf-pandas-udf-acceptance.md`).
 
 **Currently in flight:**
-- **Sprint 11** (GitHub milestone #14) — issue #51 (UDF vs pandas UDF curriculum topic), not yet
-  started.
 - **v1.1 — Live Market Data Streaming** (GitHub milestone #13) — real Coinbase/Finnhub-sourced
   prices flowing through Kafka into a real Spark Structured Streaming job, plus a live price
   dashboard. Requirements and architecture are done; 4 sub-story issues (#52–#55) are filed;

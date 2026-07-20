@@ -404,3 +404,71 @@ open / 1 closed.
   process hiccup to eliminate.
 - Sprint 11 has not yet been proposed as its own milestone; that's a separate sprint-planning step
   for the human to kick off, not bundled into this close-out.
+
+## Sprint 11 (2026-07-27 – 2026-07-31), closed 2026-07-20
+
+**Scope:** One issue — UDF vs pandas UDF serialization cost curriculum topic (issue #51, backlog
+row #16, US-4.3), solo, interleaved alongside the early, non-coding (project-manager/requirements-
+analyst/architect) steps of the newly created `v1.1 — Live Market Data Streaming` release milestone
+(#13) — the same interleaving pattern as Sprint 7 running alongside curriculum work, applied here in
+reverse: a self-contained curriculum story running while a release's early planning steps proceed in
+parallel, before any of that release's coding-heavy sub-stories were ready to pull into a sprint
+themselves. No architect pass needed — both evidence needs (timing comparison, plan-node distinction)
+disposed directly against the already-approved `docs/architecture/topic-shell-redesign.md` Decision A,
+same precedent used without a fresh architect round for Executor Tuning/Memory Management.
+
+**Outcome:** #51 shipped and closed, content-only change (`content/udf-pandas-udf/{manifest.yaml,
+concept.md,notebook.ipynb}`), plus a new `python-udf-eval`/`pandas-udf-eval` manifest `plan_nodes`
+pair mirroring `content/catalyst-plans/`'s already-shipped `BatchEvalPython` rule — zero
+annotation-engine code changes. All 5 US-4.3 acceptance criteria PASS with live evidence against a
+real 3-worker cluster and a real JupyterLab kernel (`docs/qa/udf-pandas-udf-acceptance.md`): a
+measured (never hardcoded) 2.28x wall-clock / 2.40x `executorRunTime` speedup for the pandas UDF over
+the row-at-a-time UDF (20M rows/48 partitions), sourced live from stage REST data; distinct
+`BatchEvalPython`/`ArrowEvalPython` plan nodes live-confirmed via `.explain(mode="formatted")` against
+this repo's real Spark 4.0.3 cluster, resolving the requirements doc's previously-open question about
+`ArrowEvalPython`'s exact node name (no prior live capture of it existed anywhere in this repo); the
+Self-check Reveal flow surfacing both new manifest rules with correct labels; the same Reveal calls'
+stage-metrics table reconciling exactly against the notebook's own printed sums; and `concept.md`
+explicitly tying the execution-cost framing back to Catalyst plans' existing optimizer-angle framing
+of the same two operators. Test-engineer added/confirmed coverage
+(`tests/unit/test_manifest.py::TestLoadRealUdfPandasUdfManifest`,
+`tests/unit/test_topics_loader.py::TestLoadRealUdfPandasUdfTopic`; full suite 400 passed, 2 skipped,
+no regressions). Code-reviewer found no Blockers/Majors. Human gave final sign-off 2026-07-20.
+Milestone #14 closed 2026-07-20 with 0 open / 1 closed.
+
+**What went well:**
+- The Decision A precedent (no fresh architect round needed for a static plan-structure fact plus an
+  existing stage-level runtime metric) continued to hold for a fourth story (after Executor Tuning,
+  Memory Management, and — differently — Checkpointing), keeping this an S/M-story-speed sprint despite
+  running alongside v1.1's early release-planning steps in parallel.
+- The one genuinely open item flagged at requirements time (the `ArrowEvalPython` node name needed a
+  live `.explain()` capture before the manifest rule could ship, since no prior capture of it existed
+  in this repo) was resolved by exactly that — a live capture during acceptance validation — rather
+  than guessed at requirements or development time, consistent with this project's flagged-not-guessed
+  discipline.
+- Live acceptance validation again earned its keep on a numeric claim: the measured 2.28x/2.40x gap
+  this run differed from `concept.md`'s quoted dev-time ~2.8–3.2x range, and the acceptance report
+  correctly treated that as expected run-to-run variance rather than a failure, per the criterion's own
+  explicit "measurably faster, not exactly Nx" discipline — avoiding a repeat of Skew & Salting's
+  (#35/#46, Sprint 6) over-literal numeric-target trap.
+
+**What didn't go well:**
+- Mid-acceptance-pass, the cluster this session owned was silently torn down by unrelated activity in
+  a different worktree sharing the same Docker daemon — a live reproduction of the already-tracked ADR
+  #38 risk (`docs/architecture/worktree-cluster-isolation.md`, still `Status: Proposed`, residual risk
+  R-WT-3). Not a defect in this topic and not filed as a new issue, but the second time this exact
+  platform-level risk has surfaced with real evidence (first noted as a watch-item in earlier sprints,
+  now hit live) rather than staying purely theoretical.
+- Same recurring gap as several prior retros: this entry is written from the pipeline's own reported
+  facts (commits, review outcomes, acceptance evidence) rather than a separate human "what went well /
+  what didn't" conversation this round.
+
+**Try next sprint:**
+- The worktree-cluster-isolation ADR (#38) has now been live-hit at least once with real evidence
+  (this sprint) beyond its original theoretical framing — worth raising its implementation priority at
+  the next planning checkpoint rather than leaving it indefinitely `Status: Proposed`.
+- Continue treating "measurably faster/different, not exactly Nx" acceptance criteria as written
+  (Skew & Salting's redesign already forced this project to get this right once) — this sprint's
+  2.28x-vs-2.8x-quoted variance is a second clean data point that the discipline works as intended.
+- Sprint 12 has not yet been proposed as its own milestone; that's a separate sprint-planning step for
+  the human to kick off, not bundled into this close-out.

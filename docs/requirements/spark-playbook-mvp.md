@@ -2,7 +2,11 @@
 
 Status: Draft for architect handoff
 Owner: requirements-analyst
-Date: 2026-07-13
+Date: 2026-07-13 (updated 2026-07-20 — US-4.3 extended in place with concrete given/when/then
+acceptance criteria ahead of Sprint 11/#51, matching the rigor of `curriculum-topics-2026-07.md`'s
+US-C stories; see inline markers on US-4.3 below. #16 was explicitly excluded as "unaffected" by
+that doc's 2026-07-15 redesign batch, so this formalization lives here in US-4.3's own section
+rather than as a new US-C entry.)
 
 ## Problem statement
 
@@ -204,30 +208,57 @@ As a learner, I want a topic on window functions (ranking, running aggregates, l
 **US-4.3 — UDF vs pandas UDF topic.**
 As a learner, I want a topic comparing regular (row-at-a-time, serialized) UDFs against pandas UDFs (vectorized, Arrow-based), with measurable timing/serialization differences, so I can explain the performance gap in an interview.
 
-- *Given* the same transformation implemented as a standard UDF and as a pandas UDF, *when* both run against an identically-sized dataset, *then* the topic notebook captures and displays a measurable timing difference (e.g., stage duration from the Spark UI/REST API) attributable to serialization overhead.
-- *Given* the two implementations, *when* their plans are inspected, *then* the notebook or annotation output distinguishes `BatchEvalPython`/vectorized execution from row-at-a-time Python UDF execution.
+*Updated 2026-07-20 (requirements-analyst, ahead of Sprint 11/#51) — extended in place with concrete
+given/when/then acceptance criteria, matching the rigor `curriculum-topics-2026-07.md`'s US-C stories
+apply to the other Phase 4 topics. This topic was explicitly excluded ("unaffected") from that doc's
+2026-07-15 redesign batch, since it wasn't part of the imported mockup content — the formalization
+below stays in this section rather than becoming a new US-C entry. Self-check evidence sourcing for
+both this story's evidence needs is disposed directly against the architect's already-approved
+`docs/architecture/topic-shell-redesign.md` Decision A (see the Open questions section below for why
+no fresh architect round is needed) — this repeats the same pattern already used, without a fresh
+architect consult, for US-C10 (Memory Management) in `curriculum-topics-2026-07.md`.*
 
-**US-4.4 — Memory management & spill topic.**
-As a learner, I want a dedicated topic on Spark's unified memory manager — execution vs storage memory, off-heap memory, and diagnosing OOM/spill — with exercises that deliberately trigger spill and (in a controlled way) executor OOM, so I can reason about memory tuning in an interview (this is a distinct topic from joins/AQE, not a sub-bullet of either).
-
-- *Given* a worker scaled up to the 8GB skew/spill configuration and a dataset sized via US-0.4 to exceed available execution memory for a given operation (e.g., a large sort or aggregation), *when* the job runs, *then* spill metrics (memory spill / disk spill bytes) are nonzero and visible in the Spark UI/REST API, and the topic notebook has the learner locate and interpret them before any annotation-engine hint is shown.
-- *Given* a deliberately under-provisioned executor and an oversized in-memory operation (e.g., a broadcast forced past a safe threshold, or a large collect), *when* run, *then* the job fails with an OOM (executor or driver) and the topic notebook walks through reading the resulting error/Spark UI evidence to diagnose *which* memory region was exhausted — without the app pre-diagnosing it for the learner.
-- *Given* the unified memory manager's execution/storage boundary, *when* the topic notebook runs a caching operation concurrently with a memory-intensive shuffle, *then* it demonstrates storage memory being evicted to make room for execution memory (or vice versa, per Spark's actual eviction policy), observable via the Storage tab before/after.
-
-**US-4.5 — Delta/Iceberg topic (optional).**
-As a learner, I want an optional topic introducing a table format (Delta Lake or Iceberg) covering ACID writes, time travel, and schema evolution on top of the same cluster, so I have baseline exposure even though it's lower priority than the core Spark-engine topics.
-
-- *Given* the compose stack with the chosen table format's dependency added, *when* I write a table using it and then perform an update/merge, *then* the topic notebook demonstrates time-travel query (reading a prior version) and confirms ACID behavior (e.g., no partial/corrupt state after a concurrent or interrupted write, within what's feasible to demonstrate locally).
-- This topic may be descoped or deprioritized relative to US-4.1–4.4 and Phase 0–3 without affecting the MVP's core goal (G1); it is explicitly marked optional in the backlog.
-
-**US-4.6 — Tuning/debugging capstone with "diagnose cold" exercises.**
-As a learner, I want a capstone set of exercises that present a slow or broken Spark job with no annotation-engine hints available up front, so I practice the interview-realistic skill of diagnosing a problem before consulting any tool.
-
-- *Given* a capstone exercise, *when* I open it, *then* the annotation engine's plan/metrics views are not shown or are explicitly hidden behind a "reveal" action I must deliberately trigger — they are never displayed automatically alongside the problem.
-- *Given* I've formed a hypothesis (recorded informally, e.g., in a notebook markdown cell — no formal answer-submission system required for MVP) and then trigger the reveal, *then* the annotation engine's static-plan and runtime-metrics views (US-2.1, US-2.2) become available to check my hypothesis against.
-- *Given* the capstone set, *when* assembled, *then* it includes at least one exercise per major category already covered: a shuffle/partitioning misconfiguration, a join-strategy misdiagnosis (e.g., a join that should broadcast but doesn't), a skew problem, and a memory/spill or OOM problem — each sourced from realistic data via US-0.4, not contrived one-line bugs.
-
----
+- *Given* the same transformation implemented once as a standard `udf()` and once as a `pandas_udf()`
+  (`PandasUDFType.SCALAR` / the modern `functions.pandas_udf` scalar form), *when* both run against an
+  identically-sized and identically-partitioned dataset large enough that per-batch/per-row Python
+  invocation overhead actually dominates the job (not a toy few-row example), *then* the topic
+  notebook captures and displays a **measured, never-hardcoded** wall-clock/stage-duration difference
+  between the two runs, sourced from stage `executorRunTime` / job duration via the existing
+  `/api/v1/applications/<id>/stages` REST surface — the same "report the real number each run, don't
+  assert a fixed multiplier as a hard pass/fail bar" discipline already established for Executor
+  Tuning's GC-fraction claim (issue #37) and Fault Tolerance & Lineage's 48/50 figure (US-C9): the
+  testable claim is "the pandas UDF run is measurably faster, and the notebook reports both real
+  numbers," not "exactly Nx faster."
+- *Given* the two implementations' physical plans, *when* `.explain(mode="formatted")` is captured for
+  each, *then* the row-at-a-time UDF's plan shows a `BatchEvalPython` node and the pandas UDF's plan
+  shows an `ArrowEvalPython` node — two distinct single-word operator tokens, both compatible with
+  `plan_parser.py`'s existing first-word-only tokenizer (`BatchEvalPython` is already live-confirmed
+  against a real cluster capture via `content/catalyst-plans/`'s shipped `python-udf-eval` manifest
+  rule; `ArrowEvalPython` is not yet live-captured anywhere in this repo — see Open questions below).
+- *Given* the Self-check tab, *when* the learner hypothesizes which plan node each implementation
+  produces and clicks Reveal, *then* the evidence is sourced from a manifest `plan_nodes` rule of the
+  same shape as `content/catalyst-plans/manifest.yaml`'s existing `BatchEvalPython` →
+  `python-udf-eval` rule, plus a new sibling rule for `ArrowEvalPython`, matched as `concept:
+  pandas-udf-eval` (label distinguishing "vectorized, batched Arrow evaluation" from the row-at-a-time
+  rule's "opaque bytecode" framing) — this is a static plan-structure fact, so per Decision A it needs
+  **no annotation-engine change**, only two manifest entries (one of which — the `BatchEvalPython`
+  rule's shape — already has a shipped, live-validated precedent to copy).
+- *Given* the timing comparison's self-check hypothesis (which implementation is faster, and roughly
+  how much), *when* the learner clicks Reveal, *then* the evidence is sourced from the existing
+  `stage_metrics` spotlighting mechanism (`executorRunTime` and/or job duration, already exposed by
+  `/api/v1/applications/<id>/stages` and already consumed unmodified by
+  `engine.spotlight_stage_metrics()`) — the same mechanism US-C5's Caching-speedup criterion and
+  US-C8's bytes-read criterion already use. This is a runtime metric already owned by the existing
+  `stage_metrics` surface, so per Decision A it needs **no new REST surface and no new manifest
+  section** (contrast with Executor Tuning/Memory Management's `executor_metrics`, which needed a new
+  section because the signal lives at the executor level, not the stage level — this topic's signal is
+  ordinary stage duration, the same data model `stage_metrics` already serves).
+- *Given* `content/catalyst-plans/`'s existing framing of `BatchEvalPython` as "opaque bytecode that
+  blocks Catalyst from pushing a filter past a join" (US-SH8), *when* this topic's `concept.md` is
+  authored, *then* it explicitly connects to that existing content — same operator, a complementary
+  angle (this topic teaches the row-at-a-time-vs-vectorized *execution-cost* distinction the operator
+  itself represents, not the predicate-pushdown-blocking side effect Catalyst topic already covers) —
+  rather than re-deriving `BatchEvalPython` as if the learner hasn't seen it before.
 
 ## Open questions
 
@@ -236,6 +267,32 @@ The user has indicated most of this is decision-complete; this list is deliberat
 1. **Concurrent-spawn behavior (US-1.2).** The requirement states the app must not leave two overlapping stacks running, but whether a second spawn request while one is in-flight should be *queued*, *rejected with an error*, or *cancel-and-replace* the first is left as an implementation choice for the architect — flagging in case the user has a preference (e.g., "always cancel-and-replace" is simplest for a single-user tool).
 2. **Delta vs Iceberg choice (US-4.5).** The topic is explicitly optional and either format satisfies the learning goal; no decision is needed before Phase 0–3 work, but the architect or user should pick one before Phase 4 design to avoid building both.
 3. **Capstone "hypothesis recording" (US-4.6).** The acceptance criteria assume an informal method (e.g., a markdown cell) rather than a formal answer-submission/scoring system, consistent with the no-grading non-goal. Flagging this assumption explicitly in case the user wants something more structured — otherwise no action needed.
+4. **`ArrowEvalPython` node name — genuinely open, not guessed (US-4.3, added 2026-07-20).** This
+   requirements pass grounds the row-at-a-time UDF node name (`BatchEvalPython`) in a real, live-
+   validated capture already shipped in this repo (`content/catalyst-plans/`, Sprint 4, acceptance
+   evidence in `docs/qa/screenshots/catalyst-plans/`). The pandas-UDF counterpart, `ArrowEvalPython`,
+   is *not* similarly live-validated anywhere in this repo yet — it currently appears only as prose in
+   `content/catalyst-plans/concept.md` ("...evaluated with a dedicated `BatchEvalPython`/
+   `ArrowEvalPython` operator...", written without an accompanying live capture, since that topic never
+   exercises a pandas UDF). The node name is well-established Spark internals (the physical operator
+   backing `pandas_udf`'s SCALAR type has printed as `ArrowEvalPython` since Spark 2.3), but per this
+   project's own established practice (`docs/architecture/topic-shell-redesign.md`'s R-Shell-1 risk on
+   the checkpoint-scan node name, and the developer-verification note on US-C4's manifest rule), a
+   plan-node-matcher rule should not ship on an *assumed* node name without a live `.explain(mode=
+   "formatted")` capture confirming it against this project's actual Spark version. **This is the
+   developer's first live-verification step before authoring the `ArrowEvalPython` manifest rule** —
+   flagged here as genuinely open rather than resolved by this doc, not because there's real doubt
+   about the Spark internals, but because this project doesn't ship annotation rules on unverified node
+   names (same standard already applied to Checkpointing's `Scan ExistingRDD` → `Scan` rule).
+5. **Dataset size / operation choice for a genuinely measurable serialization-cost gap (US-4.3, added
+   2026-07-20).** This doc deliberately does not prescribe the exact dataset size, row count, or
+   per-row operation needed to make the row-UDF-vs-pandas-UDF timing gap real and measurable rather
+   than swamped by fixed per-job overhead or Python-process-startup noise. This is left to the
+   developer's live experimentation, the same pattern already established for Executor Tuning (#37,
+   fat-vs-right-sized executor sizing) and Skew & Salting (#46, the `groupBy().count()` map-side-combine
+   dead end that forced a redesign) — both cases where the "obvious" mechanism didn't produce a real
+   measured effect until verified live, and the fix was a live-informed redesign, not a documentation
+   guess. Flagged here so it isn't discovered cold during development or acceptance.
 
 No other open questions are being raised; the phased scope, resource budget, locked technology decisions (JupyterLab iframe, Standalone mode, driver-in-container, FastAPI backend, Jinja2-templated compose), and curriculum ladder (including bucketing and memory-management as standalone topics) are treated as settled inputs to the architect's design.
 
@@ -252,3 +309,6 @@ No other open questions are being raised; the phased scope, resource budget, loc
   - Content stored as Markdown + notebook JSON, one folder per topic, each with a manifest declaring plan-node-types/stage-metrics of interest (no hardcoded per-topic annotation logic).
 - **No auth/security hardening** is required or expected anywhere in this system (see Non-goals) — do not add it as a hidden requirement in later design/implementation phases.
 - **Single-machine, single-user assumption** applies to every acceptance criterion above (e.g., "concurrent spawn" in Open Question 1 means concurrent *requests from the same user*, not multi-user concurrency).
+- **US-4.3 specifically:** notebook cluster configuration stays within the existing supported ranges
+  (workers 1–5, cores 1–4, memory 1–8GB per worker) — nothing about a UDF-vs-pandas-UDF timing
+  comparison requires the 8GB skew/spill worker allowance already reserved for Memory Management.
