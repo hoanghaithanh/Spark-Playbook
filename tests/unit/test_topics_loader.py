@@ -459,6 +459,31 @@ class TestTrackGrouping:
 
         assert [label for label, _ in groups] == ["Spark"]
 
+    def test_manifest_with_null_track_defaults_to_spark_not_none(self, tmp_path):
+        """`track:` with no value (or explicit `track: null`) parses to `None`
+        via YAML, which is a *present* key -- `data.get("track", "spark")`
+        would not catch this (only an absent key falls back), leaving
+        `Topic.track = None`. That then hits list_topics_by_track()'s
+        unknown-track branch and crashes on `None.title()`, taking down the
+        whole topics-index page. Guards the `or "spark"` fallback instead of
+        a bare `.get(..., "spark")`."""
+        topic_dir = tmp_path / "null-track-topic"
+        topic_dir.mkdir()
+        (topic_dir / "manifest.yaml").write_text(
+            yaml.dump({"id": "null-track-topic", "title": "Null Track", "content": "concept.md",
+                       "notebook": "notebook.ipynb", "track": None}),
+            encoding="utf-8",
+        )
+        (topic_dir / "concept.md").write_text("# ok", encoding="utf-8")
+        (topic_dir / "notebook.ipynb").write_text("{}", encoding="utf-8")
+
+        with patch.object(config, "CONTENT_DIR", tmp_path):
+            topic = loader.load_topic("null-track-topic")
+            groups = loader.list_topics_by_track()
+
+        assert topic.track == "spark"
+        assert [label for label, _ in groups] == ["Spark"]
+
 
 class TestMissingTopicFailsClearly:
     def test_nonexistent_topic_id_raises(self):

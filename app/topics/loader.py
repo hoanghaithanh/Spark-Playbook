@@ -242,7 +242,7 @@ def load_topic(topic_id: str) -> Topic:
         cluster_defaults=cluster_defaults,
         requires_kafka=bool(data.get("requires_kafka", False)),
         annotation=data.get("annotation") or {},
-        track=data.get("track", "spark"),
+        track=data.get("track") or "spark",
     )
 
 
