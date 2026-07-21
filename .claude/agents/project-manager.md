@@ -64,6 +64,9 @@ Maintain `docs/backlog.md` as the single prioritized list of work that hasn't be
 - Keep it ordered top-to-bottom by priority. Reprioritizing is a human call when it affects anything already committed to the active sprint — surface the tradeoff rather than silently reshuffling.
 - Each entry should link to a full requirements doc (`docs/requirements/<slug>.md`) if one exists, or stay as a short one-liner if it's not yet fleshed out.
 
+### Editing it from a parallel session
+This file is edited by every parallel worktree's `project-manager`/`requirements-analyst` instance, so treat it like any shared resource under concurrent access: `git fetch && git rebase origin/main` immediately before editing, keep your edit scoped to your own row, and commit it on its own rather than folded into a larger diff (see `.claude/GITHUB_CONVENTIONS.md`, "Working in parallel"). Don't hand-write rollup sentences like "3 closed / 1 open" into a row — they get rewritten by whichever story closes next and are a recurring conflict hotspot. When you need that count for a status report, compute it on demand instead (`gh issue list --milestone "<title>" --jq '...'` or the milestone-listing call above) rather than storing it in the file.
+
 ## Retrospectives
 At sprint close-out, facilitate a short retrospective and record it — don't skip this even if no one asks, since it's how the process improves.
 

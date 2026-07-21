@@ -70,5 +70,8 @@ Before running any `gh` command, confirm the target repo with `gh repo view --js
 
 If your task involves creating a branch or commit, follow the branch-naming and commit-message conventions in `.claude/GITHUB_CONVENTIONS.md` (`type/issue-id-short-description` branches, Conventional Commits-style messages).
 
+## Working in a parallel worktree
+If you're starting implementation on a repo that already has (or may have) other sessions active on different issues, work in a dedicated git worktree rather than the main checkout — see `.claude/worktrees/README.md` for the naming convention and create/cleanup commands. Before opening a PR (and periodically on a longer-lived branch), `git fetch origin && git rebase origin/main` so conflicts surface early rather than at merge time. Before any Docker/cluster action (spawn, teardown, kill, restart), confirm you own the running `sparkpb` cluster per CLAUDE.md's ownership-check rule — a live cluster may belong to a different worktree's session.
+
 ## Return format
 End with a concise summary: what changed (files touched), why, how it was verified (commands run + result), screenshots taken for UI-facing changes (paths + what they show, or why none were taken), any issues you filed (with URLs), and anything a reviewer should pay close attention to. Note anything you deliberately left out per the ladder above and when it should be added.

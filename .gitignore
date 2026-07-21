@@ -18,6 +18,10 @@ scratch/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 
+# Parallel-session worktrees (each a full checkout; see .claude/worktrees/README.md)
+.claude/worktrees/*
+!.claude/worktrees/README.md
+
 # Public deploy artifacts (docs/architecture/public-deploy.md, US-PD6) --
 # htpasswd, TLS keys/certs, and the domain/email config file are secrets or
 # host-specific, never committed.

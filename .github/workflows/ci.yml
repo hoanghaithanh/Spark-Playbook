@@ -1,0 +1,40 @@
+name: CI
+
+# Runs the unit test suite on every PR targeting main, so parallel worktrees
+# merging concurrently get an automated correctness gate before a rebase/merge
+# reaches main (which auto-deploys on push via deploy-lan.yml). GitHub-hosted
+# runner, not the self-hosted homelab box deploy-lan.yml uses -- this doesn't
+# need LAN/Docker access and shouldn't compete with that single runner.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: |
+            app/requirements.txt
+            app/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r app/requirements.txt -r app/requirements-dev.txt
+
+      # Excludes the `integration` marker -- those spawn a real Docker
+      # cluster (tests/unit/conftest.py) and would collide with the same
+      # single-slot cluster identity issue #38 covers; this runner has no
+      # business spawning sparkpb.
+      - name: Run unit tests
+        run: pytest -m "not integration"

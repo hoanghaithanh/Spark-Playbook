@@ -1,6 +1,6 @@
 # ADR: Cross-Worktree Cluster Collision — Ownership Guard, Not Concurrent Multi-Cluster
 
-Status: Proposed (architect design for issue #38, Sprint 8; awaiting human sign-off before implementation)
+Status: Implemented (issue #38, Sprint 8; guard shipped in `compose/cli.py`'s `_running_owner()` and `app/lifecycle/{manager.py,compose_ops.py}`'s `running_owner()`, issue closed 2026-07-19, live-validated in `docs/qa/multi-broker-kafka-cluster-acceptance.md`)
 Date: 2026-07-18
 Issue: #38 ("compose/cli.py's fixed Docker Compose project name causes cross-worktree cluster collisions")
 Related: `docs/architecture/public-deploy.md` (D2 — the fixed 127.0.0.1 host-port surface this

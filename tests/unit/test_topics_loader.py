@@ -409,6 +409,38 @@ class TestLoadRealKafkaTopicsPartitionsTopic:
         assert "kafka-topics-partitions" in ids
 
 
+class TestLoadRealKafkaProducersDeliveryTopic:
+    """Sanity check against the actual shipped content/kafka-producers-delivery/
+    (US-KC3, issue #64) -- third Kafka-curriculum topic, same coverage shape
+    as the loader tests for kafka-topics-partitions's manifest fields."""
+
+    def test_manifest_fields(self):
+        topic = loader.load_topic("kafka-producers-delivery")
+        assert topic.id == "kafka-producers-delivery"
+        assert topic.title == "Producers & Delivery: acks, Idempotence, and Retries Under Failure"
+        assert topic.order == 3
+        assert topic.track == "kafka"
+        assert topic.requires_kafka is True
+        assert topic.cluster_defaults.worker_count == 1
+        assert topic.cluster_defaults.kafka_broker_count == 3
+
+    def test_concept_markdown_renders_to_html(self):
+        topic = loader.load_topic("kafka-producers-delivery")
+        html = topic.concept_html()
+        assert "idempoten" in html.lower()
+        assert "acks" in html
+
+    def test_notebook_path_resolves(self):
+        topic = loader.load_topic("kafka-producers-delivery")
+        assert topic.notebook_path.name == "notebook.ipynb"
+        assert topic.notebook_path.exists()
+
+    def test_list_topics_includes_kafka_producers_delivery(self):
+        topics = loader.list_topics()
+        ids = [t.id for t in topics]
+        assert "kafka-producers-delivery" in ids
+
+
 class TestLoadRealKafkaConsumersGroupsTopic:
     """Sanity check against the actual shipped content/kafka-consumers-groups/
     (US-KC4, issue #65) -- fourth Kafka-curriculum topic, same coverage shape
@@ -455,9 +487,14 @@ class TestRequiresKafkaField:
         topics = loader.list_topics()
         # 15 Spark topics as of #51 (UDF vs pandas UDF), +1 for
         # kafka-architecture-kraft (#62), +1 for kafka-topics-partitions (#63),
-        # +1 for kafka-consumers-groups (#65).
-        assert len(topics) == 18, "expected 18 shipped topics as of #65 (kafka-consumers-groups)"
-        kafka_topics = {"kafka-architecture-kraft", "kafka-topics-partitions", "kafka-consumers-groups"}
+        # +1 for kafka-producers-delivery (#64), +1 for kafka-consumers-groups (#65).
+        assert len(topics) == 19, "expected 19 shipped topics as of #65 (kafka-consumers-groups)"
+        kafka_topics = {
+            "kafka-architecture-kraft",
+            "kafka-topics-partitions",
+            "kafka-producers-delivery",
+            "kafka-consumers-groups",
+        }
         for topic in topics:
             if topic.id in kafka_topics:
                 assert topic.requires_kafka is True
