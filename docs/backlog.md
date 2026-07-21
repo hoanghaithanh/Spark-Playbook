@@ -4,6 +4,13 @@ The single prioritized list of work not yet pulled into a sprint. Owned by the `
 
 Ordered top-to-bottom by priority. Entries move out of this list into a sprint milestone during sprint planning, and back in if they're descoped or carried over undecided.
 
+**Editing convention (parallel sessions):** pull/rebase immediately before editing this file, keep
+edits scoped to your own row, and commit the edit on its own rather than bundled into a feature
+branch's diff — see `.claude/GITHUB_CONVENTIONS.md` ("Working in parallel"). Don't add hand-written
+rollup sentences ("N closed / M open") to a row — those get rewritten by whichever story closes next
+and are a recurring merge-conflict hotspot; compute them on demand instead (`gh issue list
+--milestone "<title>" --jq '...'`) rather than storing something that goes stale and collides.
+
 <!-- Example row:
 | 1 | As a user, I want to reset my password via email | M | [docs/requirements/password-reset.md](requirements/password-reset.md) | Backlog |
 -->

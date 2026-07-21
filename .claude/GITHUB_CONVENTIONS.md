@@ -26,6 +26,27 @@ Shared conventions for branching, commits, pull requests, issues, and releases. 
 - Format: `type(scope): short summary in present tense`
 - Example: `feat(auth): add google oauth2 login`
 
+## Working in parallel (worktrees)
+
+This project routinely runs several sessions at once, each in its own `.claude/worktrees/*` git
+worktree working a different issue. Two collision classes have caused real problems in practice —
+these rules exist to prevent both.
+
+- **Worktree/branch naming:** `.claude/worktrees/issue-<N>-<slug>`, branch `type/issue-id-slug`
+  (same format as [Branch Naming](#branch-naming) above — don't invent a variant like
+  `worktree-issue-N-...`). See `.claude/worktrees/README.md` for the create/cleanup commands.
+- **Rebase before opening a PR**, and periodically on longer-lived branches:
+  `git fetch origin && git rebase origin/main`. This surfaces conflicts while they're small and
+  fresh in context, instead of at merge time days later.
+- **PR-per-issue.** Don't batch multiple issues into one PR — it widens the merge surface and makes
+  a rebase conflict harder to resolve correctly.
+- **Editing shared docs** (`docs/backlog.md`, `docs/retrospectives.md`): pull/rebase immediately
+  before editing, keep the edit scoped to your own row/section, and commit it on its own rather than
+  buried inside a large feature diff — a conflict in a one-line commit is trivial to resolve, a
+  conflict inside a 400-line feature diff is not.
+- **Docker/cluster actions** from a worktree follow CLAUDE.md's ownership-check rule — a running
+  `sparkpb` cluster may belong to a different worktree's session.
+
 ## Pull Request Etiquette
 
 - Link the corresponding issue with a closing keyword (e.g. `Closes #45`).
