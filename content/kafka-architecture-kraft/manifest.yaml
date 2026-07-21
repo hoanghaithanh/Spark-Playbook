@@ -1,0 +1,35 @@
+# Spark Playbook — topic manifest (PLAN.md §3 schema).
+#
+# First topic of the Kafka curriculum (docs/requirements/kafka-curriculum.md
+# US-KC1; docs/architecture/kafka-curriculum.md D-KC1). `track: kafka` is the
+# new grouping field from D-KC1 -- this is the first manifest to set it, every
+# pre-existing Spark manifest is left untouched and defaults to "spark".
+#
+# No `annotation:` block (Non-goal, per the requirements doc's "Self-check
+# annotation decision"): the self-check engine matches Spark's own
+# explain()/REST metrics, which don't exist for Kafka-native state (ISR,
+# quorum voters, partition leaders). This topic teaches its self-check
+# entirely through notebook output + live CLI commands instead.
+#
+# No Spark job runs in this topic -- it's Kafka control-plane/data-plane
+# mechanics only -- so cluster_defaults requests the smallest Spark footprint
+# the drawer allows rather than the curriculum's usual 3-worker default.
+
+id: kafka-architecture-kraft
+title: "Kafka Architecture: Brokers, Controllers & KRaft"
+order: 1
+track: kafka
+content: concept.md
+notebook: notebook.ipynb
+
+cluster_defaults:
+  worker_count: 1
+  worker_cores: 1
+  worker_memory_gb: 1
+  shuffle_partitions: 1
+  aqe_enabled: false
+  # 3 brokers is the smallest count that actually demonstrates a quorum
+  # (CurrentVoters with more than one member) and a per-partition ISR set
+  # with more than one replica -- the whole point of this topic.
+  kafka_broker_count: 3
+requires_kafka: true
