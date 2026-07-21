@@ -382,3 +382,28 @@ class TestKafkaPerBrokerHostPortsAndAdvertisedAddress:
             # None of the non-broker-1 brokers may advertise broker 1's port.
             if own_port != 9092:
                 assert "127.0.0.1:9092" not in advertised
+
+
+class TestKafkaJmxExporterOptsScopedToCommandNotEnv:
+    """docs/architecture/multi-broker-kafka-cluster.md D-MBK6, US-MBK3 --
+    the load-bearing fix found live: KAFKA_OPTS (the JMX javaagent flag)
+    must stay inside the command: override, never leak into environment:,
+    or every `docker exec ... kafka-*.sh` shellout (US-MBK2) inherits it
+    and crashes trying to rebind the already-open agent port. Port 7071
+    (KAFKA_JMX_EXPORTER_PORT) must never be host-published."""
+
+    def _render(self, tmp_path):
+        with patch.object(config, "RENDERED_DIR", tmp_path):
+            with patch.object(config, "COMPOSE_FILE", tmp_path / "docker-compose.yml"):
+                renderer.render(_default_params(include_kafka=True, kafka_broker_count=1))
+                rendered = (tmp_path / "docker-compose.yml").read_text(encoding="utf-8")
+        return yaml.safe_load(rendered)
+
+    def test_kafka_opts_in_command_not_environment(self, tmp_path):
+        svc = self._render(tmp_path)["services"]["spark-kafka-1"]
+        assert "KAFKA_OPTS" not in svc["environment"]
+        assert "KAFKA_OPTS" in svc["command"]
+
+    def test_jmx_exporter_port_not_host_published(self, tmp_path):
+        svc = self._render(tmp_path)["services"]["spark-kafka-1"]
+        assert not any("7071" in p for p in svc["ports"])

@@ -1,0 +1,49 @@
+# Spark Playbook — Kafka broker image with a baked Prometheus JMX exporter
+# agent (docs/architecture/multi-broker-kafka-cluster.md D-MBK6, US-MBK3).
+#
+# Same "bake at build time, not runtime fetch" discipline Dockerfile.spark
+# already applies to the Kafka SQL connector jars (kafka-streaming-infra.md
+# D4/R-K3): the agent jar + metrics config are laid down here at build time,
+# so every spawn is deterministic and offline-safe -- no jar fetch happens
+# when a broker container starts.
+#
+# Base: apache/kafka:3.9.0 -- the same tag US-MBK1/MBK2 already pin for the
+# stock broker image. Only this sub-story's compose template swaps `image:`
+# to the image built from this Dockerfile; the topology/observability
+# sub-stories need no JMX and keep using the stock image directly.
+FROM apache/kafka:3.9.0
+
+# The base image's last stage is `USER appuser` (verified via `docker
+# history`) and /opt is root-owned, drwxr-xr-x -- appuser can't create a new
+# /opt/jmx directory. Switch to root only for the two build steps below, then
+# back, so the running container keeps the base image's own non-root user.
+USER root
+
+# Maven coordinate + version pin (R-K3-class discipline): io.prometheus.jmx:
+# jmx_prometheus_javaagent:1.0.1. Verified live against Maven Central's
+# maven-metadata.xml at build time to be the latest published 1.x-stable
+# release (1.0.0/1.0.1 are the only 1.x releases; everything else is 0.x) --
+# re-check that listing when bumping.
+#
+# DEVIATION FROM THE ADR'S LITERAL "curl -fL" WORDING: verified live
+# (`docker run apache/kafka:3.9.0 sh -c 'which curl wget'`) that the base
+# image ships no curl at all, only busybox `wget`. `ADD <url> <dest>` fetches
+# via the Docker daemon itself rather than a shell tool inside the build
+# context, so no extra package needs installing just to lay the jar down.
+ADD https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/1.0.1/jmx_prometheus_javaagent-1.0.1.jar \
+    /opt/jmx/jmx_prometheus_javaagent.jar
+
+# Minimal metrics config (see compose/kafka-metrics.yml's own header comment
+# for the confirmed-live MBean ObjectNames/attributes it whitelists).
+COPY kafka-metrics.yml /opt/jmx/kafka-metrics.yml
+
+RUN chown -R appuser:appuser /opt/jmx
+
+# OQ-MBK2 (resolved live, no image change needed): the ADR flagged that the
+# base image "may lack curl" and said to install a minimal HTTP client if so.
+# Verified live that apache/kafka:3.9.0 (Alpine-based) already ships busybox
+# `wget`, which `wget -qO- http://127.0.0.1:<port>/metrics` scrapes
+# identically to `curl -s`. No package is installed here for this;
+# `app/monitoring/kafka_stats.py`'s scrape shells out to `wget`, not `curl`.
+
+USER appuser

@@ -162,6 +162,20 @@ per ponytail — the smallest thing that fails if the parse breaks):
 
 ### D-MBK6 — JMX via a baked Prometheus exporter agent, scraped in-cluster; broker image gains a Dockerfile (US-MBK3)
 
+> **Amendment (2026-07-20, during implementation, issue #58).** Both open questions below
+> (OQ-MBK1, OQ-MBK2) are resolved, confirmed live during acceptance
+> (`docs/qa/jmx-exporter-acceptance.md`): `wget` (not `curl`, the base image lacks it) is the
+> scrape client; `request=FetchConsumer` is confirmed distinct from `Fetch`/`FetchFollower`; and
+> `OneMinuteRate` is confirmed present (with the >100%-idle clamp documented in
+> `kafka_stats.py::parse_jmx_metrics`). One real deviation from this ADR's literal wiring was
+> found and fixed, not anticipated here: `KAFKA_OPTS` cannot be a plain `environment:` entry —
+> every `docker exec ... kafka-*.sh` shellout (US-MBK2's CLI-observability layer) inherits
+> container-default env and would launch its own JVM trying to rebind the same loopback agent
+> port, crashing with `BindException`. The fix scopes `KAFKA_OPTS` into a `command:` override
+> instead, so only the broker's own startup process sees it. Full detail is in the `command:`
+> block's own DEVIATION comment in `compose/templates/docker-compose.yml.j2` and in the QA
+> report's given/then 4.
+
 To attach the agent and to have an HTTP client for scraping, US-MBK3 introduces a **custom broker
 image** `compose/Dockerfile.kafka` (`FROM apache/kafka:3.9.0`) that bakes in the Prometheus JMX
 exporter Java agent + a minimal metrics config at build time (same "bake, don't fetch at runtime"

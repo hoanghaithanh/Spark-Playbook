@@ -26,6 +26,7 @@ from app.monitoring import docker_stats, kafka_stats
 from app.monitoring.collector import DashboardCollector
 from app.monitoring.docker_stats import ContainerStat
 from app.monitoring.model import KafkaSnapshot
+from app.monitoring.kafka_stats import JmxBrokerMetrics
 from app.spark_api import app_client
 
 
@@ -295,3 +296,123 @@ class TestKafkaRefreshGenerationGuard:
         fresh_collector._on_kafka_refresh_done(gen, task)
 
         assert fresh_collector._latest_kafka_cli is snapshot
+
+
+class TestKafkaJmxWiring:
+    """ADR D-MBK6/US-MBK3: JMX exporter scrape results land in
+    `_kafka_jmx`, populate the health-strip summary (jmx_available,
+    worst-of produce/fetch p99), and per-broker heap/latency/idle fields.
+    `fetch_jmx_metrics` itself is mocked at the module boundary, same
+    convention as the other `kafka_stats.fetch_*` mocks above -- its own
+    parsing edge cases are covered in `test_kafka_stats_jmx.py`."""
+
+    def _setup_common(self, monkeypatch, calls):
+        monkeypatch.setattr(kafka_stats, "find_live_broker", _fake_kafka_cli_factory(calls))
+        monkeypatch.setattr(kafka_stats, "fetch_topics_describe", lambda c, timeout_s=8.0: _async([]))
+        monkeypatch.setattr(kafka_stats, "fetch_urp", lambda c, timeout_s=8.0: _async([]))
+        monkeypatch.setattr(kafka_stats, "fetch_consumer_groups_offsets", lambda c, timeout_s=8.0: _async([]))
+        monkeypatch.setattr(kafka_stats, "fetch_consumer_groups_state", lambda c, timeout_s=8.0: _async([]))
+        monkeypatch.setattr(kafka_stats, "fetch_quorum_status", lambda c, timeout_s=8.0: _async({}))
+        monkeypatch.setattr(kafka_stats, "fetch_log_dirs", lambda c, timeout_s=8.0: _async({}))
+
+    @pytest.mark.asyncio
+    async def test_jmx_available_false_and_p99_dash_before_any_scrape_lands(
+        self, fresh_collector, monkeypatch
+    ):
+        async def _fake_sample(cpu_limits, timeout_s=3.0):
+            return [_stat("spark-kafka-1")]
+
+        monkeypatch.setattr(docker_stats, "sample", _fake_sample)
+        calls: list = []
+        self._setup_common(monkeypatch, calls)
+        monkeypatch.setattr(kafka_stats, "fetch_jmx_metrics", lambda c, timeout_s=10.0: _async(None))
+        _make_ready(kafka_broker_count=1)
+
+        snapshot = await fresh_collector.collect_once()
+        # Before the background sub-cadence refresh has landed, honest
+        # defaults, never a fabricated jmx_available=True or a latency figure.
+        assert snapshot.kafka.jmx_available is False
+        assert snapshot.kafka.p99_latency_label == "—"
+
+        await _await_kafka_refresh(fresh_collector)
+        snapshot2 = await fresh_collector.collect_once()
+        # fetch_jmx_metrics returned None for the only broker -> still honest.
+        assert snapshot2.kafka.jmx_available is False
+        assert snapshot2.kafka.p99_latency_label == "—"
+
+    @pytest.mark.asyncio
+    async def test_jmx_metrics_populate_health_strip_and_broker_fields(
+        self, fresh_collector, monkeypatch
+    ):
+        async def _fake_sample(cpu_limits, timeout_s=3.0):
+            return [_stat("spark-kafka-1"), _stat("spark-kafka-2")]
+
+        monkeypatch.setattr(docker_stats, "sample", _fake_sample)
+        calls: list = []
+        self._setup_common(monkeypatch, calls)
+
+        per_broker = {
+            "spark-kafka-1": JmxBrokerMetrics(
+                heap_pct=40, produce_p99_ms=10.0, fetch_p99_ms=5.0, rh_idle_pct=90.0
+            ),
+            "spark-kafka-2": JmxBrokerMetrics(
+                heap_pct=70, produce_p99_ms=25.0, fetch_p99_ms=3.0, rh_idle_pct=60.0
+            ),
+        }
+        monkeypatch.setattr(
+            kafka_stats, "fetch_jmx_metrics",
+            lambda c, timeout_s=10.0: _async(per_broker.get(c)),
+        )
+        _make_ready(kafka_broker_count=2)
+
+        await fresh_collector.collect_once()
+        await _await_kafka_refresh(fresh_collector)
+        snapshot = await fresh_collector.collect_once()
+
+        assert snapshot.kafka.jmx_available is True
+        # worst-of across both brokers' produce/fetch p99 -> broker-2's 25.0ms.
+        assert snapshot.kafka.p99_latency_label == "25.0ms"
+
+        broker_1 = next(b for b in snapshot.kafka.brokers if b.container_name == "spark-kafka-1")
+        assert broker_1.heap_pct == 40
+        assert broker_1.heap_label == "40%"
+        assert broker_1.produce_p99_label == "10.0ms"
+        assert broker_1.fetch_p99_label == "5.0ms"
+        assert broker_1.rh_idle_label == "90%"
+
+        broker_2 = next(b for b in snapshot.kafka.brokers if b.container_name == "spark-kafka-2")
+        assert broker_2.heap_pct == 70
+        assert broker_2.produce_p99_label == "25.0ms"
+
+    @pytest.mark.asyncio
+    async def test_broker_missing_from_jmx_scrape_keeps_dash_defaults(
+        self, fresh_collector, monkeypatch
+    ):
+        """One broker's exporter never answers (down, agent not yet up) --
+        that broker keeps the dataclass's own "—"/None defaults rather than
+        inheriting another broker's figures or a fabricated value."""
+        async def _fake_sample(cpu_limits, timeout_s=3.0):
+            return [_stat("spark-kafka-1"), _stat("spark-kafka-2")]
+
+        monkeypatch.setattr(docker_stats, "sample", _fake_sample)
+        calls: list = []
+        self._setup_common(monkeypatch, calls)
+
+        async def _fetch_jmx(container, timeout_s=10.0):
+            if container == "spark-kafka-1":
+                return JmxBrokerMetrics(heap_pct=40, produce_p99_ms=10.0, fetch_p99_ms=5.0, rh_idle_pct=90.0)
+            return None  # broker 2's scrape failed
+
+        monkeypatch.setattr(kafka_stats, "fetch_jmx_metrics", _fetch_jmx)
+        _make_ready(kafka_broker_count=2)
+
+        await fresh_collector.collect_once()
+        await _await_kafka_refresh(fresh_collector)
+        snapshot = await fresh_collector.collect_once()
+
+        broker_2 = next(b for b in snapshot.kafka.brokers if b.container_name == "spark-kafka-2")
+        assert broker_2.heap_pct is None
+        assert broker_2.heap_label == "—"
+        assert broker_2.produce_p99_label == "—"
+        assert broker_2.fetch_p99_label == "—"
+        assert broker_2.rh_idle_label == "—"

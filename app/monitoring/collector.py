@@ -266,6 +266,12 @@ class DashboardCollector:
         self._kafka_partitions_led: Dict[int, int] = {}
         self._prev_kafka_offsets: Dict[Tuple[str, int], int] = {}
         self._prev_kafka_offsets_ts: Optional[float] = None
+        # JMX exporter scrape (ADR D-MBK6, US-MBK3): per-broker, unlike the
+        # rest of the sub-cadence CLI pull (any one live broker describes the
+        # whole cluster) -- heap/latency/idle are per-JVM. Same "set inside
+        # `_refresh_kafka_cli`, consumed by `_build_kafka_brokers` next cycle"
+        # pattern as `_kafka_partitions_led`.
+        self._kafka_jmx: Dict[int, kafka_stats.JmxBrokerMetrics] = {}
 
     # ------------------------------------------------------------------ #
     # subscription lifecycle (ADR D-B / R-Dash-3)
@@ -354,6 +360,7 @@ class DashboardCollector:
         self._kafka_partitions_led = {}
         self._prev_kafka_offsets = {}
         self._prev_kafka_offsets_ts = None
+        self._kafka_jmx = {}
 
     def _cancel_kafka_refresh(self) -> None:
         """Issue #57 finding 1: a background sub-cadence refresh (started by
@@ -755,6 +762,7 @@ class DashboardCollector:
             self._kafka_cycle_count = 0
             self._prev_kafka_offsets = {}
             self._prev_kafka_offsets_ts = None
+            self._kafka_jmx = {}
             return None
 
         self._kafka_cycle_count += 1
@@ -771,6 +779,20 @@ class DashboardCollector:
         brokers_total = len(_expected_kafka_containers(params))
         brokers = self._build_kafka_brokers(params, stats_by_name, elapsed_s, cli)
 
+        # JMX health-strip summary (ADR D-MBK6/D-MBK7): jmx_available is True
+        # once any broker has answered a scrape; p99_latency_label is the
+        # worst (max) produce/fetch p99 across all brokers with data -- a
+        # health-strip figure is meant to catch trouble, not average it away.
+        # Honest "—"/False until at least one broker's exporter has answered
+        # (never fabricated), matching every other JMX-sourced field's
+        # "—"-until-populated convention.
+        jmx_values = [m for m in self._kafka_jmx.values() if m is not None]
+        worst_p99 = None
+        for m in jmx_values:
+            for candidate in (m.produce_p99_ms, m.fetch_p99_ms):
+                if candidate is not None and (worst_p99 is None or candidate > worst_p99):
+                    worst_p99 = candidate
+
         kafka = KafkaSnapshot(
             running=True,
             brokers_online=len(kafka_names),
@@ -780,8 +802,8 @@ class DashboardCollector:
             throughput_label=cli.throughput_label if cli else "—",
             consumer_group_count=cli.consumer_group_count if cli else 0,
             total_lag=cli.total_lag if cli else 0,
-            p99_latency_label="—",  # JMX-sourced (US-MBK3), not this sub-story
-            jmx_available=False,
+            p99_latency_label=f"{worst_p99:.1f}ms" if worst_p99 is not None else "—",
+            jmx_available=bool(jmx_values),
             brokers=brokers,
             topics=cli.topics if cli else [],
             consumer_groups=cli.consumer_groups if cli else [],
@@ -828,7 +850,19 @@ class DashboardCollector:
         live = await kafka_stats.find_live_broker(kafka_names, timeout_s=5.0)
         if live is None:
             self._kafka_partitions_led = {}
+            self._kafka_jmx = {}
             return KafkaSnapshot(running=True)
+
+        # JMX exporter scrape (ADR D-MBK6, US-MBK3): unlike the admin-plane
+        # calls above (any one live broker describes the whole cluster), heap/
+        # latency/idle are per-JVM -- every broker present this cycle is
+        # scraped, concurrently with the admin-plane batch below, so the
+        # whole sub-cadence pull stays roughly one JVM-startup-call's wall
+        # clock rather than growing with broker count (ADR D-MBK5's
+        # asyncio.gather rationale, extended to this per-broker fetch).
+        jmx_task = asyncio.gather(
+            *(kafka_stats.fetch_jmx_metrics(name) for name in kafka_names)
+        )
 
         topics, urp, offset_rows, state_rows, quorum_status, _log_dirs = await asyncio.gather(
             kafka_stats.fetch_topics_describe(live),
@@ -838,6 +872,13 @@ class DashboardCollector:
             kafka_stats.fetch_quorum_status(live),
             kafka_stats.fetch_log_dirs(live),
         )
+        jmx_results = await jmx_task
+        kafka_jmx: Dict[int, kafka_stats.JmxBrokerMetrics] = {}
+        for name, metrics in zip(kafka_names, jmx_results):
+            node_id = _kafka_node_id(name)
+            if metrics is not None and node_id is not None:
+                kafka_jmx[node_id] = metrics
+        self._kafka_jmx = kafka_jmx
 
         topic_names = [t.name for t in topics]
         offsets_per_topic = (
@@ -992,6 +1033,27 @@ class DashboardCollector:
                     )
                 broker.disk_io = _rate_label(disk_delta, elapsed_s)
                 broker.net_io = _rate_label(net_delta, elapsed_s)
+
+            # JMX exporter fields (ADR D-MBK6, US-MBK3): populated from the
+            # last completed sub-cadence scrape (`_refresh_kafka_cli`), same
+            # "reused between refreshes" convention as the CLI-sourced fields
+            # above. Stay at the dataclass's own "—"/None defaults (never
+            # fabricated) when this broker hasn't answered a scrape yet --
+            # offline, agent not yet up, or JMX simply hasn't landed.
+            jmx = self._kafka_jmx.get(node_id) if node_id is not None else None
+            if jmx is not None:
+                if jmx.heap_pct is not None:
+                    broker.heap_pct = jmx.heap_pct
+                    broker.heap_label = f"{jmx.heap_pct}%"
+                    broker.heap_color = _color_for_pct(
+                        jmx.heap_pct, config.DASHBOARD_RAM_WARN_PCT, config.DASHBOARD_RAM_CRIT_PCT
+                    )
+                if jmx.produce_p99_ms is not None:
+                    broker.produce_p99_label = f"{jmx.produce_p99_ms:.1f}ms"
+                if jmx.fetch_p99_ms is not None:
+                    broker.fetch_p99_label = f"{jmx.fetch_p99_ms:.1f}ms"
+                if jmx.rh_idle_pct is not None:
+                    broker.rh_idle_label = f"{jmx.rh_idle_pct:.0f}%"
 
             broker.status_color = (
                 config.DASHBOARD_COLOR_MASTER_BADGE
