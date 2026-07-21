@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
+import posixpath
 import subprocess
 import sys
 import time
@@ -182,8 +182,13 @@ def _run_compose(*args: str) -> int:
 
 def _norm_path(path) -> str:
     """Mirrors `app/config.py::norm_path` -- kept as a local copy since this
-    CLI deliberately does not import `app/` (see module docstring)."""
-    return os.path.normcase(os.path.normpath(str(path)))
+    CLI deliberately does not import `app/` (see module docstring). Uses
+    `posixpath`, not `os.path`: normalization must not depend on the host
+    OS's own path semantics, since the label and RENDERED_DIR can each
+    independently be Windows- or POSIX-style regardless of which OS this
+    comparison itself runs on (e.g. a Windows Docker Desktop label compared
+    on a Linux CI runner)."""
+    return posixpath.normpath(str(path).replace("\\", "/")).lower()
 
 
 def _running_owner() -> str | None:

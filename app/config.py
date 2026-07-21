@@ -7,6 +7,7 @@ FastAPI app and the standalone Phase 0 CLI agree on the same numbers.
 from __future__ import annotations
 
 import os
+import posixpath
 from pathlib import Path
 
 # Repo layout. app/config.py lives at <repo_root>/app/config.py.
@@ -42,14 +43,20 @@ IMAGE_NAME = "sparkpb/spark:4.0.3"
 
 
 def norm_path(path: "str | os.PathLike[str]") -> str:
-    """Normalize an OS-native path for cross-worktree ownership comparison
-    (issue #38 ownership guard). Compose's `project.working_dir` container
-    label and `RENDERED_DIR` must be compared this way, not via raw string
-    equality -- see docs/architecture/worktree-cluster-isolation.md R-WT-1
-    (the label comes back backslash-style on Windows and may differ in
+    """Normalize a path for cross-worktree ownership comparison (issue #38
+    ownership guard). Compose's `project.working_dir` container label and
+    `RENDERED_DIR` must be compared this way, not via raw string equality --
+    see docs/architecture/worktree-cluster-isolation.md R-WT-1 (the label
+    comes back backslash-style on Windows and may differ in
     separator/case/`.`-`..` normalization from a `pathlib`-derived string).
+
+    Deliberately uses `posixpath`, not `os.path`: the label and RENDERED_DIR
+    can each independently be Windows- or POSIX-style regardless of which OS
+    this comparison itself runs on (e.g. a Windows Docker Desktop label
+    compared on a Linux CI runner), so normalization must not depend on the
+    host OS's own path semantics the way `os.path.normpath`/`normcase` do.
     """
-    return os.path.normcase(os.path.normpath(str(path)))
+    return posixpath.normpath(str(path).replace("\\", "/")).lower()
 
 # The FastAPI app's own origin, per PLAN.md §1's architecture diagram
 # ("browser at http://localhost:8000"). Referenced by driver/jupyter_config.py
