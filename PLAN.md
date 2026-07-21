@@ -381,6 +381,7 @@ node-type matches and metric keys declared here (locked constraint / G7).
 id: join-strategies
 title: "Join Strategies: Broadcast vs Sort-Merge vs Shuffle-Hash"
 order: 3
+track: spark              # optional, default "spark" (see below) -- omit on every existing topic
 content: concept.md
 notebook: notebook.ipynb
 
@@ -422,6 +423,15 @@ annotation:
 ```
 
 (YAML `;`-separated inline form shown for brevity; real files use standard block mapping.)
+
+**`track` field (added 2026-07-20, issue #62, `docs/architecture/kafka-curriculum.md` D-KC1).**
+Optional; defaults to `"spark"` when absent, so none of the pre-existing manifests need editing.
+Groups the topics-index page (`GET /`) into two independently-`order`-sorted sections — `Topic.order`
+is scoped *within* a track, not global, so a Spark topic and a Kafka topic can both legitimately be
+`order: 1`. `app/topics/loader.py::list_topics_by_track()` returns `[(label, [topics]), ...]` in a
+fixed section order (Spark, then Kafka); `list_topics()` itself is unchanged and still feeds
+everything else (the breadcrumb switcher, the topic-page shell) as one flat list. Only the new Kafka
+curriculum's manifests (`docs/requirements/kafka-curriculum.md`) set `track: kafka` explicitly.
 
 ---
 
@@ -590,6 +600,15 @@ their own release milestones, not folded back into this section:
 - **`v1.2 — Multi-Broker Kafka Cluster & Monitor`** (`docs/requirements/multi-broker-kafka-cluster.md`) —
   the multi-broker topology (done) plus a Kafka Cluster Monitor dashboard panel, JMX metrics, and a
   broker-kill fault-tolerance demo (in progress).
+- **Kafka curriculum** (`docs/requirements/kafka-curriculum.md`,
+  `docs/architecture/kafka-curriculum.md`) — a second, parallel curriculum track teaching Kafka
+  itself (not just as Spark's streaming source), reusing the existing topic-page shell/manifest
+  schema. First topic **`kafka-architecture-kraft`** (issue #62, KRaft quorum/controllers vs. legacy
+  ZooKeeper) is done and signed off (`docs/qa/kafka-architecture-kraft-acceptance.md`); it is also the
+  first manifest to set the new `track: kafka` field (§3 above), which now groups the topics-index
+  page into separate "Spark"/"Kafka" sections. 11 more Kafka topics (partitions, producers/delivery,
+  consumer groups, replication/fault-tolerance, and further intermediate/advanced topics) are scoped
+  but not yet started.
 
 Original sketch, kept for history:
 - Conditional `kafka` (KRaft, no ZooKeeper) service in the compose template, included only when

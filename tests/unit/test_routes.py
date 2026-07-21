@@ -108,6 +108,28 @@ class TestTopicsIndexPage:
         assert resp.status_code == 200
         assert "Topics" in resp.text
 
+    def test_spark_and_kafka_track_headings_render_in_order_with_own_cards(self):
+        """Kafka-curriculum ADR (docs/architecture/kafka-curriculum.md D-KC1):
+        GET / must actually render the two-section grouping (not just have
+        `list_topics_by_track()` correct at the loader level, which
+        TestTrackGrouping in test_topics_loader.py already covers) -- a
+        heading per non-empty track, Spark before Kafka, and the real
+        kafka-architecture-kraft card sitting under the Kafka heading rather
+        than the Spark one."""
+        resp = client.get("/")
+
+        assert resp.status_code == 200
+        assert '<h2 class="topics-track-heading">Spark</h2>' in resp.text
+        assert '<h2 class="topics-track-heading">Kafka</h2>' in resp.text
+        spark_heading_pos = resp.text.index('<h2 class="topics-track-heading">Spark</h2>')
+        kafka_heading_pos = resp.text.index('<h2 class="topics-track-heading">Kafka</h2>')
+        assert spark_heading_pos < kafka_heading_pos
+
+        kafka_card_pos = resp.text.index('href="/topics/kafka-architecture-kraft"')
+        assert kafka_heading_pos < kafka_card_pos
+        # And not accidentally also linked under the Spark section.
+        assert 'href="/topics/kafka-architecture-kraft"' not in resp.text[:kafka_heading_pos]
+
 
 class TestSpawnValid:
     def test_valid_spawn_returns_200_and_shows_ready(self, monkeypatch):

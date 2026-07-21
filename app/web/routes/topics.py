@@ -59,9 +59,12 @@ def _shell_context(request: Request, topic: loader.Topic) -> dict:
 async def index(request: Request) -> HTMLResponse:
     """Topics-index landing page (US-SH5) -- one card per
     content/*/manifest.yaml topic, sorted by `order`; adding/removing/
-    reordering a topic folder changes this page with zero code changes."""
-    topics = loader.list_topics()
-    return templates.TemplateResponse(request, "topics_index.html", {"request": request, "topics": topics})
+    reordering a topic folder changes this page with zero code changes.
+    Kafka-curriculum ADR (docs/architecture/kafka-curriculum.md D-KC1): the
+    page groups topics into a Spark section and a Kafka section rather than
+    one flat list."""
+    tracks = loader.list_topics_by_track()
+    return templates.TemplateResponse(request, "topics_index.html", {"request": request, "tracks": tracks})
 
 
 @router.get("/topics/{topic_id}", response_class=HTMLResponse)

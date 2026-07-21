@@ -674,6 +674,16 @@ table.stage-metrics td.spotlight {
   color: #64748b;
   margin: 0 0 32px;
 }
+.topics-track-heading {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  margin: 32px 0 14px;
+  color: #0f172a;
+}
+.topics-track-heading:first-of-type {
+  margin-top: 0;
+}
 .topics-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));

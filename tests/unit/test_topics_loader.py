@@ -387,9 +387,13 @@ class TestRequiresKafkaField:
 
     def test_every_shipped_topic_defaults_requires_kafka_false(self):
         topics = loader.list_topics()
-        # 14 topics as of the Kafka ADR, +1 for udf-pandas-udf (#51, Sprint 11).
-        assert len(topics) == 15, "expected 15 shipped topics as of #51 (UDF vs pandas UDF)"
+        # 15 Spark topics as of #51 (UDF vs pandas UDF), +1 for
+        # kafka-architecture-kraft (#62, first Kafka-curriculum topic).
+        assert len(topics) == 16, "expected 16 shipped topics as of #62 (kafka-architecture-kraft)"
         for topic in topics:
+            if topic.id == "kafka-architecture-kraft":
+                assert topic.requires_kafka is True
+                continue
             assert topic.requires_kafka is False, f"{topic.id} unexpectedly requires_kafka=True"
 
     def test_a_manifest_declaring_requires_kafka_true_is_honored(self, tmp_path):
@@ -410,6 +414,75 @@ class TestRequiresKafkaField:
             topic = loader.load_topic("streaming-topic")
 
         assert topic.requires_kafka is True
+
+
+class TestTrackGrouping:
+    """Kafka-curriculum ADR (docs/architecture/kafka-curriculum.md D-KC1):
+    a manifest without `track` defaults to "spark" (so the 15 pre-existing
+    manifests need no edits), and `list_topics_by_track()` renders Spark
+    before Kafka with each group internally `order`-sorted, omitting any
+    track with no topics."""
+
+    def test_manifest_without_track_field_defaults_to_spark(self):
+        topic = loader.load_topic("partitioning-shuffle")
+        assert topic.track == "spark"
+
+    def test_manifest_with_explicit_track_kafka_is_honored(self):
+        topic = loader.load_topic("kafka-architecture-kraft")
+        assert topic.track == "kafka"
+
+    def test_list_topics_by_track_groups_spark_before_kafka_order_sorted(self):
+        groups = loader.list_topics_by_track()
+        labels = [label for label, _ in groups]
+        assert labels == ["Spark", "Kafka"]
+
+        spark_label, spark_topics = groups[0]
+        assert [t.order for t in spark_topics] == sorted(t.order for t in spark_topics)
+
+        kafka_label, kafka_topics = groups[1]
+        assert all(t.track == "kafka" for t in kafka_topics)
+        assert [t.order for t in kafka_topics] == sorted(t.order for t in kafka_topics)
+
+    def test_empty_track_is_omitted_not_rendered_with_an_empty_heading(self, tmp_path):
+        topic_dir = tmp_path / "spark-only-topic"
+        topic_dir.mkdir()
+        (topic_dir / "manifest.yaml").write_text(
+            yaml.dump({"id": "spark-only-topic", "title": "Spark Only", "content": "concept.md",
+                       "notebook": "notebook.ipynb"}),
+            encoding="utf-8",
+        )
+        (topic_dir / "concept.md").write_text("# ok", encoding="utf-8")
+        (topic_dir / "notebook.ipynb").write_text("{}", encoding="utf-8")
+
+        with patch.object(config, "CONTENT_DIR", tmp_path):
+            groups = loader.list_topics_by_track()
+
+        assert [label for label, _ in groups] == ["Spark"]
+
+    def test_manifest_with_null_track_defaults_to_spark_not_none(self, tmp_path):
+        """`track:` with no value (or explicit `track: null`) parses to `None`
+        via YAML, which is a *present* key -- `data.get("track", "spark")`
+        would not catch this (only an absent key falls back), leaving
+        `Topic.track = None`. That then hits list_topics_by_track()'s
+        unknown-track branch and crashes on `None.title()`, taking down the
+        whole topics-index page. Guards the `or "spark"` fallback instead of
+        a bare `.get(..., "spark")`."""
+        topic_dir = tmp_path / "null-track-topic"
+        topic_dir.mkdir()
+        (topic_dir / "manifest.yaml").write_text(
+            yaml.dump({"id": "null-track-topic", "title": "Null Track", "content": "concept.md",
+                       "notebook": "notebook.ipynb", "track": None}),
+            encoding="utf-8",
+        )
+        (topic_dir / "concept.md").write_text("# ok", encoding="utf-8")
+        (topic_dir / "notebook.ipynb").write_text("{}", encoding="utf-8")
+
+        with patch.object(config, "CONTENT_DIR", tmp_path):
+            topic = loader.load_topic("null-track-topic")
+            groups = loader.list_topics_by_track()
+
+        assert topic.track == "spark"
+        assert [label for label, _ in groups] == ["Spark"]
 
 
 class TestMissingTopicFailsClearly:

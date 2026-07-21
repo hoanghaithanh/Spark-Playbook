@@ -36,10 +36,25 @@ app (topic page, cluster control panel, embedded JupyterLab — `docs/acceptance
 Phase 2 self-check annotation engine, the Phase 2.5 realtime monitoring dashboard
 (`docs/acceptance/phase-2-5.md`), the unified topic-page shell (Concept/Notebook/Self-check tabs,
 cluster-config drawer, breadcrumb switcher), and a data-driven topics-index landing page (`GET /`,
-one card per `content/*/manifest.yaml` topic, no hardcoded list). 15 curriculum topics are built:
-partitioning/shuffle, join strategies, bucketing, AQE, Catalyst plans, DAG & lazy evaluation,
-caching & persistence, window functions, serialization formats, executor tuning, memory management,
-skew & salting, checkpointing, fault tolerance & lineage, and UDF vs pandas UDF serialization cost.
+one card per `content/*/manifest.yaml` topic, no hardcoded list, now grouped into two sections — see
+below). 15 curriculum topics are built in the original Spark track: partitioning/shuffle, join
+strategies, bucketing, AQE, Catalyst plans, DAG & lazy evaluation, caching & persistence, window
+functions, serialization formats, executor tuning, memory management, skew & salting, checkpointing,
+fault tolerance & lineage, and UDF vs pandas UDF serialization cost.
+
+**A second, parallel Kafka curriculum track has now started** (learning Kafka itself, not just as
+plumbing under a Spark job): its first topic, `kafka-architecture-kraft` (brokers, controllers,
+KRaft quorum vs. legacy ZooKeeper — GitHub issue #62), is built and signed off. The topics-index
+page (`GET /`) now renders two labeled sections, **"Spark"** (the 15 topics above) and **"Kafka"**
+(this one topic so far), each independently ordered — the first consumer of the new per-topic
+`track:` manifest field (`app/topics/loader.py`, `docs/architecture/kafka-curriculum.md` D-KC1).
+11 more Kafka topics are scoped and backlogged (partitions, producers/delivery, consumer groups,
+replication, and further intermediate/advanced topics) but not yet started — see
+[`docs/requirements/kafka-curriculum.md`](docs/requirements/kafka-curriculum.md) and
+[`docs/architecture/kafka-curriculum.md`](docs/architecture/kafka-curriculum.md) for the full
+12-topic curriculum plan and design, and
+[`docs/qa/kafka-architecture-kraft-acceptance.md`](docs/qa/kafka-architecture-kraft-acceptance.md)
+for this first topic's acceptance evidence.
 
 **Shipped:**
 - **v1.0 — Public Deploy** (GitHub milestone #8, closed 2026-07-19) — implemented and
@@ -87,7 +102,8 @@ skew & salting, checkpointing, fault tolerance & lineage, and UDF vs pandas UDF 
   [`docs/requirements/multi-broker-kafka-cluster.md`](docs/requirements/multi-broker-kafka-cluster.md).
 
 **Not yet started:** the Structured Streaming curriculum topic itself (content + notebook, v1.1's
-remaining sub-stories) and the Kafka Cluster Monitor panel UI (v1.2's remaining sub-stories).
+remaining sub-stories), the Kafka Cluster Monitor panel UI (v1.2's remaining sub-stories), and the
+remaining 11 topics of the new Kafka curriculum track (`docs/requirements/kafka-curriculum.md`).
 
 For the full story-by-story history, acceptance evidence, and prioritized backlog, see
 [`docs/backlog.md`](docs/backlog.md). For the phased roadmap and architecture in detail, see
