@@ -376,6 +376,39 @@ class TestBlurb:
         assert blurb == "A bold word, some inline code, and an italic word."
 
 
+class TestLoadRealKafkaTopicsPartitionsTopic:
+    """Sanity check against the actual shipped content/kafka-topics-partitions/
+    (US-KC2, issue #63) -- second Kafka-curriculum topic, same coverage shape
+    as the loader tests for kafka-architecture-kraft's manifest fields."""
+
+    def test_manifest_fields(self):
+        topic = loader.load_topic("kafka-topics-partitions")
+        assert topic.id == "kafka-topics-partitions"
+        assert topic.title == "Topics & Partitions: Ordering and Distribution"
+        assert topic.order == 2
+        assert topic.track == "kafka"
+        assert topic.requires_kafka is True
+        assert topic.cluster_defaults.worker_count == 1
+        assert topic.cluster_defaults.kafka_broker_count == 3
+
+    def test_concept_markdown_renders_to_html(self):
+        topic = loader.load_topic("kafka-topics-partitions")
+        html = topic.concept_html()
+        assert "partition" in html.lower()
+        assert "murmur2" in html
+        assert "DefaultPartitioner" in html
+
+    def test_notebook_path_resolves(self):
+        topic = loader.load_topic("kafka-topics-partitions")
+        assert topic.notebook_path.name == "notebook.ipynb"
+        assert topic.notebook_path.exists()
+
+    def test_list_topics_includes_kafka_topics_partitions(self):
+        topics = loader.list_topics()
+        ids = [t.id for t in topics]
+        assert "kafka-topics-partitions" in ids
+
+
 class TestRequiresKafkaField:
     """docs/architecture/kafka-streaming-infra.md's claim: `requires_kafka:
     bool` already existed pre-#50 (`app/topics/loader.py:233`) and all
@@ -388,10 +421,11 @@ class TestRequiresKafkaField:
     def test_every_shipped_topic_defaults_requires_kafka_false(self):
         topics = loader.list_topics()
         # 15 Spark topics as of #51 (UDF vs pandas UDF), +1 for
-        # kafka-architecture-kraft (#62, first Kafka-curriculum topic).
-        assert len(topics) == 16, "expected 16 shipped topics as of #62 (kafka-architecture-kraft)"
+        # kafka-architecture-kraft (#62), +1 for kafka-topics-partitions (#63).
+        assert len(topics) == 17, "expected 17 shipped topics as of #63 (kafka-topics-partitions)"
+        kafka_topics = {"kafka-architecture-kraft", "kafka-topics-partitions"}
         for topic in topics:
-            if topic.id == "kafka-architecture-kraft":
+            if topic.id in kafka_topics:
                 assert topic.requires_kafka is True
                 continue
             assert topic.requires_kafka is False, f"{topic.id} unexpectedly requires_kafka=True"

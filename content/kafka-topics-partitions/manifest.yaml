@@ -1,0 +1,38 @@
+# Spark Playbook — topic manifest (PLAN.md §3 schema).
+#
+# Second topic of the Kafka curriculum (docs/requirements/kafka-curriculum.md
+# US-KC2; docs/architecture/kafka-curriculum.md D-KC1). `order: 2` is scoped
+# per-track (D-KC1: "each track is sorted independently by its own `order`"),
+# not global -- kafka-architecture-kraft (#62) is order 1 in this same track,
+# every pre-existing Spark manifest keeps its own separate 0-14 ordering.
+#
+# No `annotation:` block, same rationale as kafka-architecture-kraft: this
+# topic is Kafka-native partition-assignment/ordering mechanics (kafka-python
+# RecordMetadata.partition, consumer offsets), not a Spark job with an
+# explain()/REST-metrics self-check surface.
+#
+# No Spark job runs in this topic either -- smallest Spark footprint the
+# drawer allows, same as kafka-architecture-kraft.
+
+id: kafka-topics-partitions
+title: "Topics & Partitions: Ordering and Distribution"
+order: 2
+track: kafka
+content: concept.md
+notebook: notebook.ipynb
+
+cluster_defaults:
+  worker_count: 1
+  worker_cores: 1
+  worker_memory_gb: 1
+  shuffle_partitions: 1
+  aqe_enabled: false
+  # 3 partitions is the smallest count that actually demonstrates both key-
+  # based distribution across more than one partition and the no-key
+  # distribution behavior the notebook measures -- the whole point of this
+  # topic. Broker count only needs to be >=1 for a working cluster; 3 is kept
+  # to match kafka-architecture-kraft's cluster shape (no reason to change
+  # it, and RF=3 keeps `kafka-topics.sh --describe` output consistent across
+  # both Kafka-track topics).
+  kafka_broker_count: 3
+requires_kafka: true
