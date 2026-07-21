@@ -92,18 +92,22 @@ for this first topic's acceptance evidence.
   crypto side needs no key). See
   [`docs/requirements/live-market-data-streaming.md`](docs/requirements/live-market-data-streaming.md).
 - **v1.2 — Multi-Broker Kafka Cluster & Monitor** (GitHub milestone #15) — sub-story (a), the
-  multi-broker topology, and sub-story (b), the CLI-shellout observability data layer, are done
-  and signed off. Sub-story (c), a baked Prometheus JMX exporter agent in the broker image
-  (loopback-only, no new host port) feeding real per-broker heap%/produce-fetch p99/idle% into
-  the same snapshot, is also done and signed off (issue #58, acceptance-validated live against a
-  real cluster, all 5 acceptance criteria PASS — `docs/qa/jmx-exporter-acceptance.md`). A Kafka
-  Cluster Monitor panel (a 4th tab in the existing Cluster Monitor, built against a design
-  mockup) and a broker-kill fault-tolerance demo (issues #59–#60) remain. See
+  multi-broker topology, sub-story (b), the CLI-shellout observability data layer, and sub-story
+  (c), a baked Prometheus JMX exporter agent in the broker image (loopback-only, no new host port)
+  feeding real per-broker heap%/produce-fetch p99/idle% into the same snapshot, are done and signed
+  off (issue #58, acceptance-validated live against a real cluster, all 5 acceptance criteria
+  PASS — `docs/qa/jmx-exporter-acceptance.md`). Sub-story (d), a Kafka Cluster Monitor panel (a 4th
+  tab — Overview / Job Detail / Node Detail / **Kafka** — in the existing Cluster Monitor slide-in
+  panel, showing a broker health strip, diagnostics/incident cards, a per-broker card grid,
+  ISR-shrink events, and topics/consumer-groups tables with per-partition lag drill-down) is also
+  done and signed off (issue #59, live-verified including a real broker-kill scenario —
+  `docs/qa/kafka-cluster-monitor-panel-ui-acceptance.md`). A broker-kill fault-tolerance demo
+  (issue #60) remains. See
   [`docs/requirements/multi-broker-kafka-cluster.md`](docs/requirements/multi-broker-kafka-cluster.md).
 
 **Not yet started:** the Structured Streaming curriculum topic itself (content + notebook, v1.1's
-remaining sub-stories), the Kafka Cluster Monitor panel UI (v1.2's remaining sub-stories), and the
-remaining 11 topics of the new Kafka curriculum track (`docs/requirements/kafka-curriculum.md`).
+remaining sub-stories), the broker-kill fault-tolerance demo (v1.2's last remaining sub-story), and
+the remaining 11 topics of the new Kafka curriculum track (`docs/requirements/kafka-curriculum.md`).
 
 For the full story-by-story history, acceptance evidence, and prioritized backlog, see
 [`docs/backlog.md`](docs/backlog.md). For the phased roadmap and architecture in detail, see
