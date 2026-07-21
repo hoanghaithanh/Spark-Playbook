@@ -1,0 +1,48 @@
+# Spark Playbook — topic manifest (PLAN.md §3 schema).
+#
+# Fourth topic of the Kafka curriculum (docs/requirements/kafka-curriculum.md
+# US-KC4; docs/architecture/kafka-curriculum.md D-KC1's recommended-order
+# table -- kafka-architecture-kraft=1, kafka-topics-partitions=2,
+# kafka-producers-delivery=3, this topic=4). `order: 4` is scoped per-track
+# (D-KC1: "each track is sorted independently by its own `order`"), not
+# global. NOTE: this manifest was written while kafka-producers-delivery
+# (issue #64, order 3) was still in progress in a sibling worktree -- order 4
+# assumes it lands at order 3 as the architecture doc already specifies; no
+# renumbering needed here regardless of landing order, since D-KC1's table is
+# authoritative and both topics read their own fixed `order:` value.
+#
+# No `annotation:` block, same rationale as the three prior Kafka topics:
+# this is Kafka-native consumer-group/offset mechanics (kafka-python
+# ConsumerRebalanceListener, manual/auto commit), not a Spark job with an
+# explain()/REST-metrics self-check surface.
+#
+# No Spark job runs in this topic either -- smallest Spark footprint the
+# drawer allows, same as the other three Kafka topics.
+
+id: kafka-consumers-groups
+title: "Consumer Groups: Rebalancing & Offset Commits"
+order: 4
+track: kafka
+content: concept.md
+notebook: notebook.ipynb
+
+cluster_defaults:
+  worker_count: 1
+  worker_cores: 1
+  worker_memory_gb: 1
+  shuffle_partitions: 1
+  aqe_enabled: false
+  # kafka_broker_count only controls broker/replica count, not partition
+  # count -- every broker in this app's compose template hardcodes
+  # KAFKA_NUM_PARTITIONS=3 for auto-created topics regardless of manifest
+  # (compose/templates/docker-compose.yml.j2), so this topic's demo topic
+  # auto-creates with exactly 3 partitions (N=3) no matter what's set here.
+  # N=3 is deliberately small: "scale to N members" (3) and "scale beyond N"
+  # (4) both need to be cheap, fast rebalances inside a notebook run, and 3
+  # is the smallest N that still lets the ceiling be demonstrated at all
+  # (N=1 can't show a >1-member "each owns exactly one partition" step).
+  # kafka_broker_count itself is kept at 3 to match the other three Kafka
+  # topics' cluster shape -- no reason to diverge, and it's what
+  # kafka-consumer-groups.sh --describe's broker-fallback needs anyway.
+  kafka_broker_count: 3
+requires_kafka: true

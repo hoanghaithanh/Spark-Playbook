@@ -43,23 +43,27 @@ functions, serialization formats, executor tuning, memory management, skew & sal
 fault tolerance & lineage, and UDF vs pandas UDF serialization cost.
 
 **A second, parallel Kafka curriculum track has now started** (learning Kafka itself, not just as
-plumbing under a Spark job): three topics are built and signed off so far — `kafka-architecture-kraft`
-(brokers, controllers, KRaft quorum vs. legacy ZooKeeper — GitHub issue #62),
-`kafka-topics-partitions` (partition count/key choice, keyed vs. unkeyed produce, per-partition
-ordering — GitHub issue #63), and `kafka-producers-delivery` (`acks=0/1/all` producer delivery
-semantics and idempotent-producer dedup under a real induced broker restart — GitHub issue #64). The
+plumbing under a Spark job): four topics are now built and signed off — `kafka-architecture-kraft`
+(brokers, controllers, KRaft quorum vs. legacy ZooKeeper — GitHub issue #62), `kafka-topics-partitions`
+(partition count/key choice, keyed vs. unkeyed produce, per-partition ordering — GitHub issue #63),
+`kafka-producers-delivery` (`acks=0/1/all` producer delivery semantics and idempotent-producer dedup
+under a real induced broker restart — GitHub issue #64), and `kafka-consumers-groups` (offset commits,
+consumer-group rebalancing, and the partition-count ceiling on group parallelism, validated across a
+4-round live-acceptance pass that found and fixed 4 real bugs along the way — GitHub issue #65). The
 topics-index page (`GET /`) now renders two labeled sections, **"Spark"** (the 15 topics above) and
-**"Kafka"** (these three topics so far), each independently ordered — the first consumer of the new
-per-topic `track:` manifest field (`app/topics/loader.py`, `docs/architecture/kafka-curriculum.md`
-D-KC1). 9 more Kafka topics are scoped and backlogged (consumer groups, replication, and further
-intermediate/advanced topics) but not yet started — see
-[`docs/requirements/kafka-curriculum.md`](docs/requirements/kafka-curriculum.md) and
+**"Kafka"** (these four topics), each independently ordered — the first consumer of the new per-topic
+`track:` manifest field (`app/topics/loader.py`, `docs/architecture/kafka-curriculum.md` D-KC1). 7 more
+Kafka topics (replication, log compaction/retention, schema registry, performance tuning, monitoring,
+exactly-once transactions, multi-broker cluster ops) are scoped and backlogged but not yet started —
+see [`docs/requirements/kafka-curriculum.md`](docs/requirements/kafka-curriculum.md) and
 [`docs/architecture/kafka-curriculum.md`](docs/architecture/kafka-curriculum.md) for the full
-12-topic curriculum plan and design, and
+11-topic curriculum plan and design (a 12th story, `kafka-spark-structured-streaming`, folded into
+v1.1's streaming job instead of shipping standalone — see that doc's US-KC7), and
 [`docs/qa/kafka-architecture-kraft-acceptance.md`](docs/qa/kafka-architecture-kraft-acceptance.md),
-[`docs/qa/kafka-topics-partitions-acceptance.md`](docs/qa/kafka-topics-partitions-acceptance.md), and
-[`docs/qa/kafka-producers-delivery-acceptance.md`](docs/qa/kafka-producers-delivery-acceptance.md)
-for these topics' acceptance evidence.
+[`docs/qa/kafka-topics-partitions-acceptance.md`](docs/qa/kafka-topics-partitions-acceptance.md),
+[`docs/qa/kafka-producers-delivery-acceptance.md`](docs/qa/kafka-producers-delivery-acceptance.md), and
+[`docs/qa/kafka-consumers-groups-acceptance.md`](docs/qa/kafka-consumers-groups-acceptance.md) for
+these topics' acceptance evidence.
 
 **Shipped:**
 - **v1.0 — Public Deploy** (GitHub milestone #8, closed 2026-07-19) — implemented and
