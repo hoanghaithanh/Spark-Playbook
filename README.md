@@ -43,18 +43,23 @@ functions, serialization formats, executor tuning, memory management, skew & sal
 fault tolerance & lineage, and UDF vs pandas UDF serialization cost.
 
 **A second, parallel Kafka curriculum track has now started** (learning Kafka itself, not just as
-plumbing under a Spark job): its first topic, `kafka-architecture-kraft` (brokers, controllers,
-KRaft quorum vs. legacy ZooKeeper — GitHub issue #62), is built and signed off. The topics-index
-page (`GET /`) now renders two labeled sections, **"Spark"** (the 15 topics above) and **"Kafka"**
-(this one topic so far), each independently ordered — the first consumer of the new per-topic
-`track:` manifest field (`app/topics/loader.py`, `docs/architecture/kafka-curriculum.md` D-KC1).
-11 more Kafka topics are scoped and backlogged (partitions, producers/delivery, consumer groups,
-replication, and further intermediate/advanced topics) but not yet started — see
+plumbing under a Spark job): three topics are built and signed off so far — `kafka-architecture-kraft`
+(brokers, controllers, KRaft quorum vs. legacy ZooKeeper — GitHub issue #62),
+`kafka-topics-partitions` (partition count/key choice, keyed vs. unkeyed produce, per-partition
+ordering — GitHub issue #63), and `kafka-producers-delivery` (`acks=0/1/all` producer delivery
+semantics and idempotent-producer dedup under a real induced broker restart — GitHub issue #64). The
+topics-index page (`GET /`) now renders two labeled sections, **"Spark"** (the 15 topics above) and
+**"Kafka"** (these three topics so far), each independently ordered — the first consumer of the new
+per-topic `track:` manifest field (`app/topics/loader.py`, `docs/architecture/kafka-curriculum.md`
+D-KC1). 9 more Kafka topics are scoped and backlogged (consumer groups, replication, and further
+intermediate/advanced topics) but not yet started — see
 [`docs/requirements/kafka-curriculum.md`](docs/requirements/kafka-curriculum.md) and
 [`docs/architecture/kafka-curriculum.md`](docs/architecture/kafka-curriculum.md) for the full
 12-topic curriculum plan and design, and
-[`docs/qa/kafka-architecture-kraft-acceptance.md`](docs/qa/kafka-architecture-kraft-acceptance.md)
-for this first topic's acceptance evidence.
+[`docs/qa/kafka-architecture-kraft-acceptance.md`](docs/qa/kafka-architecture-kraft-acceptance.md),
+[`docs/qa/kafka-topics-partitions-acceptance.md`](docs/qa/kafka-topics-partitions-acceptance.md), and
+[`docs/qa/kafka-producers-delivery-acceptance.md`](docs/qa/kafka-producers-delivery-acceptance.md)
+for these topics' acceptance evidence.
 
 **Shipped:**
 - **v1.0 — Public Deploy** (GitHub milestone #8, closed 2026-07-19) — implemented and
@@ -107,7 +112,7 @@ for this first topic's acceptance evidence.
 
 **Not yet started:** the Structured Streaming curriculum topic itself (content + notebook, v1.1's
 remaining sub-stories), the broker-kill fault-tolerance demo (v1.2's last remaining sub-story), and
-the remaining 11 topics of the new Kafka curriculum track (`docs/requirements/kafka-curriculum.md`).
+the remaining 9 topics of the new Kafka curriculum track (`docs/requirements/kafka-curriculum.md`).
 
 For the full story-by-story history, acceptance evidence, and prioritized backlog, see
 [`docs/backlog.md`](docs/backlog.md). For the phased roadmap and architecture in detail, see

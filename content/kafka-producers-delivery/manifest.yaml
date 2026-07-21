@@ -1,0 +1,45 @@
+# Spark Playbook — topic manifest (PLAN.md §3 schema).
+#
+# Third topic of the Kafka curriculum (docs/requirements/kafka-curriculum.md
+# US-KC3; docs/architecture/kafka-curriculum.md D-KC1). `order: 3` is scoped
+# per-track (D-KC1: "each track is sorted independently by its own `order`"),
+# following kafka-architecture-kraft (#62, order 1) and kafka-topics-partitions
+# (#63, order 2) in the same track.
+#
+# Correction (docs/requirements/kafka-curriculum.md US-KC3, "CORRECTED
+# 2026-07-20" / docs/architecture/kafka-curriculum.md D-KC3): kafka-python==2.0.2
+# has no enable_idempotence/transactional_id config at all -- confirmed
+# against KafkaProducer.DEFAULT_CONFIG. The idempotent-producer bullet uses
+# kafka-console-producer.sh via a host-terminal `docker exec` instead (same
+# "driver container has no Docker CLI/socket access" constraint
+# kafka-architecture-kraft already documents). The acks=0/acks=1 bullets are
+# unaffected -- `acks` is a real, supported kafka-python producer config.
+#
+# No `annotation:` block, same rationale as the first two Kafka topics: this
+# is Kafka-native producer/delivery behavior (acks, idempotent dedup, retry
+# semantics), not a Spark job with an explain()/REST-metrics self-check
+# surface.
+#
+# No Spark job runs in this topic either -- smallest Spark footprint the
+# drawer allows, same as the other two Kafka-track topics so far.
+
+id: kafka-producers-delivery
+title: "Producers & Delivery: acks, Idempotence, and Retries Under Failure"
+order: 3
+track: kafka
+content: concept.md
+notebook: notebook.ipynb
+
+cluster_defaults:
+  worker_count: 1
+  worker_cores: 1
+  worker_memory_gb: 1
+  shuffle_partitions: 1
+  aqe_enabled: false
+  # 3 brokers so a mid-produce broker restart is survivable by the cluster as
+  # a whole (only one of three goes down at a time) while still failing over
+  # the demo topic's single partition leader -- the exact mechanic this
+  # topic's induced-failure exercises need. Matches the other two
+  # already-shipped Kafka-track topics' cluster shape.
+  kafka_broker_count: 3
+requires_kafka: true
