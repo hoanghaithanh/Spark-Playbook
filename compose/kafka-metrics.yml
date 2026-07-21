@@ -1,0 +1,37 @@
+# Spark Playbook — Prometheus JMX exporter config for the Kafka broker image
+# (docs/architecture/multi-broker-kafka-cluster.md D-MBK6, US-MBK3).
+#
+# Whitelists exactly the MBeans the Kafka Cluster Monitor's JVM-level fields
+# need, verified live against a real apache/kafka:3.9.0 broker's MBean tree
+# (`docker exec ... wget -qO- localhost:<port>/metrics` against a jmx_prometheus_
+# javaagent-1.0.1-instrumented broker), not guessed from documentation:
+#
+#   - java.lang:type=Memory                                     -> heap %
+#       (java_lang_memory_heapmemoryusage_used / _max)
+#   - kafka.network:type=RequestMetrics,name=TotalTimeMs,
+#       request=Produce                                          -> produce latency
+#   - kafka.network:type=RequestMetrics,name=TotalTimeMs,
+#       request=FetchConsumer  (confirmed live -- a distinct tag from the
+#       plain "Fetch" and "FetchFollower" replica-traffic tags, resolving the
+#       ADR's Medium-High-confidence open question)                -> fetch latency
+#       (kafka_network_requestmetrics_{50,75,95,98,99,999}thpercentile)
+#   - kafka.server:type=KafkaRequestHandlerPool,
+#       name=RequestHandlerAvgIdlePercent                          -> handler idle %
+#       (kafka_server_kafkarequesthandlerpool_oneminuterate, confirmed present
+#       live -- resolving the ADR's OneMinuteRate-vs-MeanRate open question;
+#       meanrate is also exposed and used as kafka_stats.py's fallback)
+#
+# Whitelisting (vs. the exporter's own catch-all `.*` default) keeps the
+# scrape payload small -- unfiltered, a single broker's /metrics ran to
+# ~10,000 lines (every JVM classloading/GC/thread-pool bean); whitelisted to
+# just these four ObjectNames it's ~150 lines. The exporter's own built-in
+# process_*/jvm_*/jmx_* self-metrics are unaffected by this whitelist (they
+# come from a separate hardcoded collector), but are a small, fixed overhead.
+lowercaseOutputName: true
+whitelistObjectNames:
+  - "java.lang:type=Memory"
+  - "kafka.network:type=RequestMetrics,name=TotalTimeMs,request=Produce"
+  - "kafka.network:type=RequestMetrics,name=TotalTimeMs,request=FetchConsumer"
+  - "kafka.server:type=KafkaRequestHandlerPool,name=RequestHandlerAvgIdlePercent"
+rules:
+  - pattern: ".*"

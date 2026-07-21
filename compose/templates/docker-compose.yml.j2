@@ -215,9 +215,46 @@ services:
 {% set kafka_quorum_voters = quorum_ns.voters | join(",") %}
 {% for i in range(1, kafka_broker_count + 1) %}
   spark-kafka-{{ i }}:
-    image: apache/kafka:3.9.0        # official ASF image, native KRaft; matches apache/spark provenance
+    # JMX exporter Dockerfile (docs/architecture/multi-broker-kafka-cluster.md
+    # D-MBK6, US-MBK3): swapped from the stock `apache/kafka:3.9.0` image
+    # (which #50/US-MBK1/US-MBK2 used directly) to the build built by
+    # compose/build.sh from compose/Dockerfile.kafka, which bakes in the
+    # Prometheus JMX exporter agent + metrics config at build time -- no
+    # runtime jar fetch. Still native KRaft, still ASF-provenance apache/kafka
+    # underneath; only a thin layer added on top.
+    image: sparkpb/kafka:3.9.0
     container_name: spark-kafka-{{ i }}
     hostname: kafka-{{ i }}
+    # Prometheus JMX exporter agent (D-MBK6): binds its HTTP /metrics endpoint
+    # to the container's own loopback only (127.0.0.1, not 0.0.0.0) -- no new
+    # host-published port (see the ADR's non-goals). Port 7071 mirrors
+    # app/config.py::KAFKA_JMX_EXPORTER_PORT (hardcoded here, not templated,
+    # matching this block's other fixed Kafka values like KAFKA_HEAP_OPTS
+    # below).
+    #
+    # DEVIATION FROM THE ADR'S LITERAL WIRING (found live, load-bearing):
+    # `KAFKA_OPTS` is honored by kafka-run-class.sh, but the ADR's proposal to
+    # set it as a plain `environment:` entry is wrong -- that makes it the
+    # container's *default* env, which every `docker exec ... kafka-*.sh`
+    # shellout (kafka_stats.py's whole CLI-observability layer, US-MBK2)
+    # *also* inherits, since kafka-*.sh tool scripts route through the same
+    # kafka-run-class.sh. Each such exec then launches its own JVM that tries
+    # to bind the *same* agent port the running broker already holds, and
+    # crashes with `BindException: Address in use` before running the actual
+    # command (verified live: `kafka-broker-api-versions.sh` returned nothing
+    # but a JMX-agent stack trace with KAFKA_OPTS set container-wide) --
+    # silently breaking every US-MBK2 CLI call once JMX landed. Fix: override
+    # `command:` to export KAFKA_OPTS only for this one exec chain (the base
+    # image's own CMD, `/etc/kafka/docker/run`) rather than the container's
+    # env -- `docker exec` uses the container's *configured* Env (image +
+    # compose `environment:`), not a live PID 1 shell's local export, so this
+    # scoping is invisible to `docker exec` while still reaching the actual
+    # `java` invocation that starts the broker (verified live: `docker exec
+    # ... env | grep KAFKA_OPTS` empty, `wget .../metrics` still answers, and
+    # `kafka-broker-api-versions.sh` succeeds normally, all on the same
+    # container).
+    command: >-
+      sh -c "KAFKA_OPTS='-javaagent:/opt/jmx/jmx_prometheus_javaagent.jar=127.0.0.1:7071:/opt/jmx/kafka-metrics.yml' exec /etc/kafka/docker/run"
     environment:
       KAFKA_NODE_ID: "{{ i }}"
       KAFKA_PROCESS_ROLES: "broker,controller"

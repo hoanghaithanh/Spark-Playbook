@@ -203,6 +203,13 @@ MASTER_MEMORY_GB = 1
 # renderer.validate() / compose/cli.py::_validate_ranges, not added flat.
 KAFKA_MEMORY_GB = 2
 
+# Multi-broker Kafka ADR D-MBK6 (US-MBK3): the Prometheus JMX exporter
+# agent's HTTP endpoint port, bound to the container's own loopback only
+# (compose/templates/docker-compose.yml.j2's KAFKA_OPTS -javaagent arg) --
+# never host-published (see the ADR's non-goals). `kafka_stats.py` scrapes
+# it via `docker exec spark-kafka-{i} wget -qO- http://127.0.0.1:<port>/metrics`.
+KAFKA_JMX_EXPORTER_PORT = 7071
+
 # Readiness wait bounds (PLAN.md §2).
 READY_POLL_INTERVAL_S = 2
 READY_TIMEOUT_DEFAULT_S = 60

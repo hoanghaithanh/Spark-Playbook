@@ -77,9 +77,13 @@ skew & salting, checkpointing, fault tolerance & lineage, and UDF vs pandas UDF 
   crypto side needs no key). See
   [`docs/requirements/live-market-data-streaming.md`](docs/requirements/live-market-data-streaming.md).
 - **v1.2 — Multi-Broker Kafka Cluster & Monitor** (GitHub milestone #15) — sub-story (a), the
-  multi-broker topology above, is done and signed off. The observability data layer, a JMX
-  exporter, a Kafka Cluster Monitor panel (a 4th tab in the existing Cluster Monitor, built
-  against a design mockup), and a broker-kill fault-tolerance demo (issues #57–#60) remain. See
+  multi-broker topology, and sub-story (b), the CLI-shellout observability data layer, are done
+  and signed off. Sub-story (c), a baked Prometheus JMX exporter agent in the broker image
+  (loopback-only, no new host port) feeding real per-broker heap%/produce-fetch p99/idle% into
+  the same snapshot, is also done and signed off (issue #58, acceptance-validated live against a
+  real cluster, all 5 acceptance criteria PASS — `docs/qa/jmx-exporter-acceptance.md`). A Kafka
+  Cluster Monitor panel (a 4th tab in the existing Cluster Monitor, built against a design
+  mockup) and a broker-kill fault-tolerance demo (issues #59–#60) remain. See
   [`docs/requirements/multi-broker-kafka-cluster.md`](docs/requirements/multi-broker-kafka-cluster.md).
 
 **Not yet started:** the Structured Streaming curriculum topic itself (content + notebook, v1.1's
