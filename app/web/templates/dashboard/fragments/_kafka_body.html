@@ -1,0 +1,271 @@
+{#  Kafka Cluster Monitor tab body (US-MBK4 / D-MBK7). Mirrors
+    _overview_body.html's structure/CSS idiom on the same panel chrome.
+
+    Deliberate, documented deviations from the real mockup
+    (Kafka Cluster Monitor.dc.html, DesignSync 911c0961-ad6e-4cb2-bee2-e117ad1e3f2e),
+    confirmed against the fetched file rather than the ADR's un-inspected
+    written approximation (D-MBK8 / OQ-MBK3):
+
+    1. No `Suggestion: ...` line on diagnostics cards. D-MBK8 (G3 "signal,
+       not conclusions", the realtime-monitoring-dashboard.md D-A precedent)
+       already decided this by construction -- `KafkaSnapshot` and every
+       dataclass under it has no suggestion/fix field. Confirmed still
+       correct now that the real mockup (which does carry a prescriptive
+       line) has been seen.
+    2. No 5m/1h/6h/24h time-range tabs and no separate "Live · 2s" pulse.
+       This app has no historical data store to back a time-range selector
+       (would fabricate a feature no other tab has), and the panel already
+       carries one shared live indicator in the header
+       (_dashboard_body.html's "Live · updates every ~Ns" pulse) that
+       already covers this view -- a second one would be a duplicate, not
+       new information.
+    3. Broker cards do not click through to a separate "broker detail" view
+       with CPU/heap history sparklines. `KafkaBrokerStat` (already-shipped,
+       sub-story b/c scope) carries no history buffers, unlike
+       `NodeStat.cpu_history/ram_history` -- there is nothing a detail view
+       could show beyond what the card already surfaces inline (CPU/RAM/
+       heap/produce p99/fetch p99/request-handler-idle/partitions-led).
+       Consumer-group per-partition lag drill-down *is* implemented (that
+       data -- `ConsumerGroupRow.partitions` -- already exists on the
+       model), via a native <details> expansion rather than a second
+       full-screen view.
+
+    Diagnostics/incident cards have no dedicated model field (US-MBK5/#60
+    hasn't landed) -- derived here directly from the two real signals the
+    model already exposes (`under_replicated_count`, `isr_shrink_events`),
+    never fabricated, and naturally empty absent a fault. #}
+{% if snapshot.kafka is none %}
+<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:80px 28px;">
+  <div style="text-align:center;color:#4a5061;">
+    <div style="font-size:16px;font-weight:600;margin-bottom:8px;">Kafka not running</div>
+    <div style="font-size:13px;color:#8b93a3;">Spawn a cluster with Kafka included to see broker/topic/consumer-group diagnostics here.</div>
+  </div>
+</div>
+{% else %}
+  {% set kafka = snapshot.kafka %}
+  {% set urp_color = config.DASHBOARD_COLOR_GREEN if kafka.under_replicated_count == 0 else config.DASHBOARD_COLOR_RED %}
+  {% set lagging_groups = kafka.consumer_groups | selectattr('total_lag', 'gt', 0) | list %}
+
+  <div style="display:flex;flex-wrap:wrap;background:#fff;border-bottom:1px solid #e5e7eb;padding:18px 28px;gap:36px;">
+    <div>
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#8b93a3;margin-bottom:4px;">Brokers online</div>
+      <div style="font-size:18px;font-weight:700;">{{ kafka.brokers_online }}/{{ kafka.brokers_total }}</div>
+    </div>
+    <div>
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#8b93a3;margin-bottom:4px;">Under-replicated partitions</div>
+      <div style="font-size:18px;font-weight:700;color:{{ urp_color }};">{{ kafka.under_replicated_count }}</div>
+    </div>
+    <div>
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#8b93a3;margin-bottom:4px;">Active controller</div>
+      <div style="font-size:18px;font-weight:700;">{{ kafka.active_controller_id if kafka.active_controller_id is not none else "—" }}</div>
+    </div>
+    <div>
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#8b93a3;margin-bottom:4px;">Throughput</div>
+      <div style="font-size:18px;font-weight:700;">{{ kafka.throughput_label }}</div>
+    </div>
+    <div>
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#8b93a3;margin-bottom:4px;">Consumer groups</div>
+      <div style="font-size:18px;font-weight:700;">{{ kafka.consumer_group_count }} <span style="font-size:12px;font-weight:600;color:#8b93a3;">({{ lagging_groups | length }} lagging)</span></div>
+    </div>
+    <div>
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#8b93a3;margin-bottom:4px;">Req latency p99</div>
+      <div style="font-size:18px;font-weight:700;">{{ kafka.p99_latency_label }}</div>
+    </div>
+  </div>
+
+  {% set incident_cards = [] %}
+  {% if kafka.under_replicated_count > 0 %}
+    {% set _ = incident_cards.append({
+      "icon": "&#9888;",
+      "category": "Under-replicated partitions",
+      "detail": kafka.under_replicated_count ~ " partition(s) below their replication factor.",
+      "color": config.DASHBOARD_COLOR_RED,
+      "border_color": config.DASHBOARD_COLOR_RED,
+    }) %}
+  {% endif %}
+  {% for ev in kafka.isr_shrink_events %}
+    {% set _ = incident_cards.append({
+      "icon": "&#9888;",
+      "category": "ISR shrink",
+      "detail": ev.detail_label ~ " (" ~ ev.timestamp_label ~ ")",
+      "color": config.DASHBOARD_COLOR_AMBER,
+      "border_color": config.DASHBOARD_COLOR_AMBER,
+    }) %}
+  {% endfor %}
+
+  <div style="padding:22px 28px 0;">
+    {% if incident_cards %}
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:22px;">
+      {% for card in incident_cards %}
+      <div style="background:#fff;border:1px solid {{ card.border_color }};border-radius:12px;padding:16px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span style="font-size:15px;">{{ card.icon | safe }}</span>
+          <div style="font-size:12.5px;font-weight:700;color:{{ card.color }};">{{ card.category }}</div>
+        </div>
+        <div style="font-size:12.5px;color:#4a5061;line-height:1.5;">{{ card.detail }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div style="font-size:13px;font-weight:600;color:#4a5061;margin-bottom:14px;">Brokers &middot; {{ kafka.brokers_online }}/{{ kafka.brokers_total }} online</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-bottom:22px;">
+      {% for broker in kafka.brokers %}
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+          <div style="width:8px;height:8px;border-radius:50%;background:{{ broker.status_color }};flex:none;"></div>
+          <div style="font-size:14px;font-weight:600;">kafka-{{ broker.node_id }}</div>
+          {% if broker.is_controller %}
+          <span style="font-size:10px;font-weight:700;letter-spacing:.04em;color:{{ config.DASHBOARD_COLOR_MASTER_BADGE }};background:#f3ebff;padding:2px 6px;border-radius:5px;">CONTROLLER</span>
+          {% endif %}
+          <div style="margin-left:auto;font-size:11px;color:#8b93a3;">{{ broker.container_name }}</div>
+        </div>
+
+        {% if not broker.online %}
+        <div style="font-size:12.5px;color:#8b93a3;padding:10px 0;">Container not available (stopped or removed).</div>
+        {% else %}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px 14px;margin-bottom:14px;">
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:#8b93a3;margin-bottom:4px;">
+              <span>CPU</span><span style="font-weight:600;color:{{ broker.cpu_color }};">{{ broker.cpu_label }}</span>
+            </div>
+            <div style="height:6px;background:#eef0f3;border-radius:4px;overflow:hidden;">
+              <div style="height:100%;width:{{ broker.cpu_pct or 0 }}%;background:{{ broker.cpu_color }};border-radius:4px;"></div>
+            </div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:#8b93a3;margin-bottom:4px;">
+              <span>Heap</span><span style="font-weight:600;color:{{ broker.heap_color }};">{{ broker.heap_label }}</span>
+            </div>
+            <div style="height:6px;background:#eef0f3;border-radius:4px;overflow:hidden;">
+              <div style="height:100%;width:{{ broker.heap_pct or 0 }}%;background:{{ broker.heap_color }};border-radius:4px;"></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding-top:12px;border-top:1px solid #f0f1f4;margin-bottom:10px;">
+          <div>
+            <div style="font-size:10px;color:#8b93a3;margin-bottom:2px;">Disk I/O</div>
+            <div style="font-size:12.5px;font-weight:600;">{{ broker.disk_io }}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:#8b93a3;margin-bottom:2px;">Net I/O</div>
+            <div style="font-size:12.5px;font-weight:600;">{{ broker.net_io }}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:#8b93a3;margin-bottom:2px;">Req handler idle</div>
+            <div style="font-size:12.5px;font-weight:600;">{{ broker.rh_idle_label }}</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;padding-top:10px;border-top:1px solid #f0f1f4;">
+          <div>
+            <div style="font-size:10px;color:#8b93a3;margin-bottom:2px;">Produce p99</div>
+            <div style="font-size:12.5px;font-weight:600;">{{ broker.produce_p99_label }}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:#8b93a3;margin-bottom:2px;">Fetch p99</div>
+            <div style="font-size:12.5px;font-weight:600;">{{ broker.fetch_p99_label }}</div>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:12px;border-top:1px solid #f0f1f4;font-size:12px;">
+          <span style="color:#8b93a3;">Partitions led</span>
+          <span style="font-weight:600;">{{ broker.partitions_led }}</span>
+        </div>
+        {% endif %}
+      </div>
+      {% else %}
+      <p style="color:#8b93a3;font-size:12.5px;">No broker data yet.</p>
+      {% endfor %}
+    </div>
+
+    <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:16px;margin-bottom:22px;">
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px;">
+        <div style="font-size:13px;font-weight:600;color:#4a5061;margin-bottom:14px;">Leader distribution</div>
+        {% set max_led = (kafka.brokers | map(attribute='partitions_led') | max) if kafka.brokers else 0 %}
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          {% for broker in kafka.brokers %}
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:70px;font-size:12px;color:#4a5061;flex:none;">kafka-{{ broker.node_id }}</div>
+            <div style="flex:1;height:16px;background:#f0f1f4;border-radius:4px;overflow:hidden;">
+              <div style="height:100%;width:{{ ((broker.partitions_led / max_led * 100) | round(0, 'floor')) if max_led else 0 }}%;background:{{ config.DASHBOARD_COLOR_GREEN }};border-radius:4px;"></div>
+            </div>
+            <div style="width:26px;font-size:12px;font-weight:600;text-align:right;">{{ broker.partitions_led }}</div>
+          </div>
+          {% else %}
+          <p style="color:#8b93a3;font-size:12.5px;">No broker data yet.</p>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px;">
+        <div style="font-size:13px;font-weight:600;color:#4a5061;margin-bottom:14px;">ISR-shrink events</div>
+        <div style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;">
+          {% for ev in kafka.isr_shrink_events | reverse %}
+          <div style="font-size:12px;padding:8px 10px;background:#fff8f0;border:1px solid #fde3b0;border-radius:8px;">
+            <div style="font-weight:600;color:#8a5300;">{{ ev.detail_label }}</div>
+            <div style="color:#8b93a3;font-size:11px;margin-top:2px;">{{ ev.timestamp_label }}</div>
+          </div>
+          {% else %}
+          <p style="color:#8b93a3;font-size:12.5px;">No ISR changes observed.</p>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:22px;">
+      <div style="font-size:13px;font-weight:600;color:#4a5061;margin-bottom:14px;">Consumer groups</div>
+      <div style="display:grid;grid-template-columns:1fr 90px 90px 110px;gap:0 12px;font-size:11px;color:#8b93a3;padding:0 4px 8px;border-bottom:1px solid #f0f1f4;text-transform:uppercase;letter-spacing:.03em;">
+        <div>Group</div><div>State</div><div>Members</div><div>Total lag</div>
+      </div>
+      {% for grp in kafka.consumer_groups %}
+      <details style="border-bottom:1px solid #f7f7f8;">
+        <summary style="display:grid;grid-template-columns:1fr 90px 90px 110px;gap:0 12px;align-items:center;padding:9px 4px;cursor:pointer;list-style:none;">
+          <div style="font-size:12px;font-weight:600;">{{ grp.group }}</div>
+          <div style="font-size:12px;">{{ grp.state }}</div>
+          <div style="font-size:12px;">{{ grp.members if grp.members is not none else "—" }}</div>
+          <div style="font-size:12px;font-weight:600;color:{{ config.DASHBOARD_COLOR_RED if grp.total_lag > 0 else config.DASHBOARD_COLOR_GREEN }};">{{ grp.total_lag_label }}</div>
+        </summary>
+        <div style="padding:6px 4px 10px 4px;">
+          <div style="display:grid;grid-template-columns:1fr 70px 100px 100px 90px;gap:0 12px;font-size:10.5px;color:#8b93a3;padding:0 4px 6px;text-transform:uppercase;letter-spacing:.03em;">
+            <div>Topic</div><div>Partition</div><div>Current offset</div><div>Log-end offset</div><div>Lag</div>
+          </div>
+          {% for p in grp.partitions %}
+          <div style="display:grid;grid-template-columns:1fr 70px 100px 100px 90px;gap:0 12px;padding:5px 4px;font-size:11.5px;">
+            <div>{{ p.topic }}</div>
+            <div>{{ p.partition }}</div>
+            <div>{{ p.current_offset if p.current_offset is not none else "—" }}</div>
+            <div>{{ p.log_end_offset if p.log_end_offset is not none else "—" }}</div>
+            <div style="font-weight:600;color:{{ config.DASHBOARD_COLOR_RED if (p.lag or 0) > 0 else config.DASHBOARD_COLOR_GREEN }};">{{ p.lag_label }}</div>
+          </div>
+          {% else %}
+          <p style="color:#8b93a3;font-size:11.5px;padding:6px 4px;">No partition lag data yet.</p>
+          {% endfor %}
+        </div>
+      </details>
+      {% else %}
+      <p style="color:#8b93a3;font-size:12.5px;padding:12px 4px;">No consumer groups yet.</p>
+      {% endfor %}
+    </div>
+
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-bottom:22px;">
+      <div style="font-size:13px;font-weight:600;color:#4a5061;margin-bottom:14px;">Topics</div>
+      <div style="display:grid;grid-template-columns:1fr 90px 60px 130px 90px 90px;gap:0 12px;font-size:11px;color:#8b93a3;padding:0 4px 8px;border-bottom:1px solid #f0f1f4;text-transform:uppercase;letter-spacing:.03em;">
+        <div>Topic</div><div>Partitions</div><div>RF</div><div>ISR health</div><div>Under-repl.</div><div>Size</div>
+      </div>
+      {% for t in kafka.topics %}
+      <div style="display:grid;grid-template-columns:1fr 90px 60px 130px 90px 90px;gap:0 12px;align-items:center;padding:9px 4px;border-bottom:1px solid #f7f7f8;">
+        <div style="font-size:12px;font-weight:600;">{{ t.name }}</div>
+        <div style="font-size:12px;">{{ t.partitions }}</div>
+        <div style="font-size:12px;">{{ t.replication_factor if t.replication_factor is not none else "—" }}</div>
+        <div style="font-size:12px;font-weight:600;color:{{ t.isr_health_color }};">{{ t.isr_health_label }}</div>
+        <div style="font-size:12px;">{{ t.under_replicated_count }}</div>
+        <div style="font-size:12px;">{{ t.size_label }}</div>
+      </div>
+      {% else %}
+      <p style="color:#8b93a3;font-size:12.5px;padding:12px 4px;">No topics yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}

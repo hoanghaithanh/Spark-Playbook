@@ -10,9 +10,9 @@ point now. Three routes:
                              so existing bookmarks/links land on a real page
                              with the panel auto-opened (Decision B2) instead
                              of dead-ending.
-  - GET  /dashboard/panel   the panel body: top bar + all three views
-                             (client-side switched, ADR D-B) + the SSE
-                             listener element (`dashboard/_dashboard_body.html`).
+  - GET  /dashboard/panel   the panel body: top bar + all four views
+                             (client-side switched, ADR D-B / D-MBK7) + the
+                             SSE listener element (`dashboard/_dashboard_body.html`).
                              Server-rendered inline with a fresh snapshot so
                              the first paint isn't blank while waiting for
                              the first SSE push. Fetched by the shell's
@@ -23,11 +23,13 @@ point now. Three routes:
                              sampling (ADR D-B -- collection decoupled from
                              delivery). Each pushed event is one HTML blob
                              containing out-of-band (`hx-swap-oob`) fragments
-                             for the overview strip, job detail, and every
-                             node's detail block, so a single connection
-                             keeps all three views current regardless of
-                             which one is currently visible client-side.
-                             Unchanged by the panel migration (Decision B).
+                             for the overview strip, job detail, every node's
+                             detail block, and the Kafka tab (US-MBK4,
+                             D-MBK7), so a single connection keeps all four
+                             views current regardless of which one is
+                             currently visible client-side. Unchanged by the
+                             panel migration (Decision B); Kafka reuses the
+                             same connection rather than opening a second one.
 """
 from __future__ import annotations
 
@@ -118,15 +120,17 @@ async def dashboard_panel(request: Request) -> HTMLResponse:
 
 def _render_oob_payload(request: Request, snapshot: Snapshot) -> str:
     """One HTML blob: overview + job-detail + a container of every node's
-    detail block, each carrying `hx-swap-oob="true"` so the HTMX SSE
-    extension's single `sse-swap` listener element (which itself swaps
-    nothing, `hx-swap="none"`) fans the update out to all three views at
-    once (ADR D-B)."""
+    detail block + the Kafka tab, each carrying `hx-swap-oob="true"` so the
+    HTMX SSE extension's single `sse-swap` listener element (which itself
+    swaps nothing, `hx-swap="none"`) fans the update out to all four views at
+    once (ADR D-B / D-MBK7 -- Kafka is a 4th OOB swap over the same shared
+    SSE connection, not a second connection)."""
     ctx = {"request": request, "snapshot": snapshot}
     overview = templates.get_template("dashboard/fragments/overview_oob.html").render(ctx)
     job_detail = templates.get_template("dashboard/fragments/job_detail_oob.html").render(ctx)
     node_detail = templates.get_template("dashboard/fragments/node_detail_oob.html").render(ctx)
-    return overview + job_detail + node_detail
+    kafka = templates.get_template("dashboard/fragments/kafka_oob.html").render(ctx)
+    return overview + job_detail + node_detail + kafka
 
 
 @router.get("/dashboard/stream")

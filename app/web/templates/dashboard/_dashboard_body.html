@@ -1,8 +1,9 @@
-{# Cluster Monitor panel body (US-SH4, Decision B) -- the header bar, the SSE
-   listener element, and the three client-switched views. Fetched by the
-   shell's Cluster Monitor panel (GET /dashboard/panel) and injected into
-   #monitor-body; the stylesheet/htmx <script> tags are already loaded by
-   shell.html so this partial carries neither.
+{# Cluster Monitor panel body (US-SH4, Decision B; +Kafka tab US-MBK4,
+   D-MBK7) -- the header bar, the SSE listener element, and the four
+   client-switched views (Overview, Job Detail, Node Detail, Kafka). Fetched
+   by the shell's Cluster Monitor panel (GET /dashboard/panel) and injected
+   into #monitor-body; the stylesheet/htmx <script> tags are already loaded
+   by shell.html so this partial carries neither.
 
    Formerly the body of the standalone dashboard/page.html (ADR D-E), folded
    in here when the standalone /dashboard route was retired in favor of the
@@ -12,12 +13,22 @@
   .dash-view{display:none;}
   .dash-view.active{display:block;}
   .node-detail-block.active{display:block !important;}
+  .dash-nav-btn{background:none;border:1px solid #2a2f3a;color:#8b93a3;font-size:12.5px;font-weight:600;padding:6px 14px;border-radius:7px;cursor:pointer;}
+  .dash-nav-btn.active{background:#1f2430;color:#fff;border-color:#3a4152;}
 </style>
 
 <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 28px;background:#12151c;color:#fff;">
   <div style="display:flex;align-items:center;gap:12px;">
     <div style="width:28px;height:28px;border-radius:7px;background:linear-gradient(135deg,#f97316,#ef4444);flex:none;"></div>
     <div style="font-size:16px;font-weight:600;letter-spacing:-0.01em;">Spark Cluster Monitor</div>
+    {# D-MBK7: the panel's other three views (Overview/Job Detail/Node
+       Detail) are reached by in-content drill-down links, but Kafka needs a
+       top-level entry point -- the smallest change that surfaces it is this
+       two-button nav, not a generic tab router. #}
+    <div style="display:flex;gap:6px;margin-left:18px;">
+      <button type="button" id="dash-nav-overview" class="dash-nav-btn active" onclick="dashGoTo('overview');return false;">Overview</button>
+      <button type="button" id="dash-nav-kafka" class="dash-nav-btn" onclick="dashGoTo('kafka');return false;">Kafka</button>
+    </div>
   </div>
   <div style="display:flex;align-items:center;gap:18px;">
     {# G-RTD5 / US-5.6: deep-links out to the raw Spark UIs, matching
@@ -55,6 +66,10 @@
   {% endfor %}
 </div>
 
+<div id="kafka-content" class="dash-view">
+  {% include "dashboard/fragments/_kafka_body.html" %}
+</div>
+
 <script>
   (function () {
     var state = { view: 'overview', selectedNode: null };
@@ -67,6 +82,12 @@
       document.querySelectorAll('.node-detail-block').forEach(function (el) {
         el.classList.toggle('active', state.view === 'nodeDetail' && el.getAttribute('data-node') === state.selectedNode);
       });
+      document.getElementById('kafka-content').classList.toggle('active', state.view === 'kafka');
+
+      // Nav highlight: Overview/Job Detail/Node Detail are all reached from
+      // (and lead back to) the Overview button -- only 'kafka' gets its own.
+      document.getElementById('dash-nav-overview').classList.toggle('active', state.view !== 'kafka');
+      document.getElementById('dash-nav-kafka').classList.toggle('active', state.view === 'kafka');
     }
 
     window.dashGoTo = function (view) {
