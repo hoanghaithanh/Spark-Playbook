@@ -1,6 +1,6 @@
 # ADR: Cross-Worktree Cluster Collision — Ownership Guard, Not Concurrent Multi-Cluster
 
-Status: Implemented (issue #38, Sprint 8; guard shipped in `compose/cli.py`'s `_running_owner()` and `app/lifecycle/{manager.py,compose_ops.py}`'s `running_owner()`, issue closed 2026-07-19, live-validated in `docs/qa/multi-broker-kafka-cluster-acceptance.md`)
+Status: Implemented (issue #38, Sprint 8; guard shipped in `compose/cli.py`'s `_running_owner()` and `app/lifecycle/{manager.py,compose_ops.py}`'s `running_owner()`, issue closed 2026-07-19, live-validated in `docs/qa/multi-broker-kafka-cluster-acceptance.md`). Scope limitation re-confirmed by issue #77 (2026-07-21): the guard covers only `compose/cli.py`/`manager.py`'s own call paths, not raw `docker`/`docker compose` commands — see R-WT-5.
 Date: 2026-07-18
 Issue: #38 ("compose/cli.py's fixed Docker Compose project name causes cross-worktree cluster collisions")
 Related: `docs/architecture/public-deploy.md` (D2 — the fixed 127.0.0.1 host-port surface this
@@ -236,6 +236,11 @@ No data-model change, no schema change, no template change, no new dependency.
   knowingly left to Docker's own name/port collision (see Consequences).
 - **Scoping the monitoring dashboard to owned containers.** Not needed under B (a refused worktree
   never reaches READY, so its collector never runs); revisit only if that assumption changes.
+- **Protecting against raw `docker`/`docker compose` commands or Docker Desktop GUI actions run
+  outside `compose/cli.py`/`app/lifecycle/manager.py`.** The guard is application code that runs
+  inside those two call paths only (see R-WT-5); it structurally cannot intercept a bare `docker
+  kill`/`docker compose down` or a GUI stop/remove issued by a separate process. This is an accepted
+  limitation, not a gap to close with more in-app code — see R-WT-5's mitigation.
 
 ---
 
@@ -262,4 +267,25 @@ No data-model change, no schema change, no template change, no new dependency.
   value (`RENDERED_DIR`) the single source in each. (They can't share code — the CLI deliberately
   doesn't import `app/` — so this is a convention to hold, and a natural thing for code-review to
   check.)
+- **R-WT-5 — The guard cannot see, and does not run for, a raw `docker`/`docker compose` command or a
+  Docker Desktop GUI action.** `_refuse_if_foreign_owner()` is called at the top of exactly four
+  functions: `compose/cli.py`'s `cmd_up()`/`cmd_down()` and `app/lifecycle/manager.py`'s
+  `ClusterManager.spawn()`/`teardown()`. Any teardown that reaches the Docker daemon by a different
+  path — a bare `docker compose -p sparkpb down`, `docker kill <container>`, `docker rm -f`, or a
+  human/agent clicking stop/remove in Docker Desktop — never calls this function at all, so there is
+  no check to bypass; it is simply not in the loop. Confirmed live by issue #77: during a live
+  acceptance pass, the `sparkpb` stack disappeared four times via a clean `kill → stop → die → destroy`
+  sequence across every container within ~6 seconds (`docker system events`), consistent with a
+  deliberate `docker compose down`/competing `up` issued outside `compose/cli.py`/`manager.py` by a
+  separate, uncoordinated concurrent session on the same host — not a crash, and not a defect in the
+  guard code itself, which behaved exactly as designed for the paths it covers. *Noticed by:* a
+  cluster disappearing with no "Refused: owned by another worktree" message ever printed/logged,
+  because the path that tore it down never went through the guarded functions. *Mitigation:* this is
+  an accepted, out-of-application-code limitation, not a bug to fix — see "Explicitly out of scope"
+  below. True prevention would require access control at the Docker daemon itself, which this
+  ponytail-disciplined codebase deliberately does not build. The actual mitigation is procedural:
+  CLAUDE.md's Notes section requires checking `docker inspect <container> --format
+  '{{index .Config.Labels "com.docker.compose.project.working_dir"}}'` to confirm ownership before
+  *any* raw Docker command, not only before app/CLI-driven ones — hold that convention, don't try to
+  extend the in-code guard to cover it.
 ```
